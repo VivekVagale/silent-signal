@@ -1,0 +1,30 @@
+{
+  "timing": {
+    "jitter_0.0": {
+      "adaptive_cer": 0.0,
+      "fixed_cer": 0.2412
+    },
+    "jitter_0.15": {
+      "adaptive_cer": 0.0047,
+      "fixed_cer": 0.5468
+    },
+    "jitter_0.3": {
+      "adaptive_cer": 0.3383,
+      "fixed_cer": 0.8556
+    },
+    "jitter_0.45": {
+      "adaptive_cer": 0.7827,
+      "fixed_cer": 1.0718
+    }
+  },
+  "video_flash": {
+    "15fps": {
+      "cer": 0.0042,
+      "exact": "19/20"
+    },
+    "30fps": {
+      "cer": 0.0036,
+      "exact": "19/20"
+    }
+  }
+}
