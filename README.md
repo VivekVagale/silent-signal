@@ -8,7 +8,10 @@ cannot make a sound.
 
 **Live demo: https://vivekvagale.github.io/silent-signal/** : runs in your
 browser; camera frames never leave your device. No camera? Open *Analyze
-video* and press *Try a sample clip*.
+video* and press *Blink sample* or *Flash sample*. Both clips are synthetic:
+a computer-generated MakeHuman face (CC0) blinking "SOS HELP", and a rendered
+torch. Both decode exactly, and a test checks it
+([how the blink clip is made](tools/blink_sample/README.md)).
 
 ## Channels
 

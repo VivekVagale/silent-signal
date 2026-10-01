@@ -455,10 +455,11 @@ function toggleArm() {
 }
 
 $("start").onclick = startCamera;
-$("sample").onclick = async () => {
-  await selectChannel("flash");
-  const blob = await (await fetch("samples/flash_sos_help.mp4")).blob();
-  analyzeVideo(new File([blob], "flash_sos_help.mp4", { type: "video/mp4" }));
+// sample clips, both synthetic: a CG face blinking (MakeHuman, CC0) and a rendered torch
+for (const b of document.querySelectorAll("button.sample")) b.onclick = async () => {
+  await selectChannel(b.dataset.ch);
+  const blob = await (await fetch(b.dataset.src)).blob();
+  analyzeVideo(new File([blob], b.dataset.src.split("/").pop(), { type: "video/mp4" }));
 };
 $("arm").onclick = toggleArm;
 $("clear").onclick = () => { if (state.mode === "video") { state.edits = freshEdits(); if (state.series.length) return recompute(); } clearSession(); };
@@ -487,7 +488,7 @@ function setMode(mode) {
   $("mLive").setAttribute("aria-selected", mode === "live"); $("mVideo").setAttribute("aria-selected", mode === "video");
   stopPlayback(); stopCamera(); video.removeAttribute("src"); video.load();
   $("placeholder").classList.remove("hidden"); $("progress").classList.add("hidden"); $("pick2").classList.add("hidden");
-  $("start").classList.toggle("hidden", mode !== "live"); $("pick").classList.toggle("hidden", mode !== "video"); $("sample").classList.toggle("hidden", mode !== "video");
+  $("start").classList.toggle("hidden", mode !== "live"); $("pick").classList.toggle("hidden", mode !== "video"); document.querySelectorAll("button.sample").forEach((b) => b.classList.toggle("hidden", mode !== "video"));
   $("phText").textContent = mode === "live"
     ? "Your camera feed is processed on this device only. Nothing is uploaded."
     : "Pick a clip of someone blinking, pressing or flashing Morse. Every frame is read on this device, then you can replay it and fix any mistakes.";
