@@ -48,11 +48,60 @@ by the real detector.
 | 15 fps | 0.004 | 19 / 20 |
 | 30 fps | 0.004 | 19 / 20 |
 
+**Slow, deliberate pauses**: 300 messages where every pause is 2.5x longer
+than Morse allows (how people actually blink on purpose), 15% wobble.
+
+| Pauses | CER |
+|---|---|
+| standard Morse gap rules | 2.787 (over 1: every letter split apart adds characters) |
+| gap groups learned from the pauses (this project) | **0.063** |
+
 **What these numbers do not cover**: blinks and finger presses need real
 people on camera; they are not simulated. They were checked by hand, not
 measured. Above ~25% timing wobble errors climb fast, because single
 dot/dash and gap decisions start to flip; the fix is word-level correction
 with a dictionary (next step).
+
+### A real test: Jeremiah Denton, 1966
+
+In a 1966 propaganda interview filmed in Hanoi, US Navy pilot Jeremiah
+Denton, a prisoner of war, blinked T-O-R-T-U-R-E in Morse while answering
+questions. I ran the blink analyzer on a 41 s news clip of it (320x240, 15 fps; the clip is not
+in this repo, only the measured blink timings in
+[tests/fixtures/denton_pulses.json](tests/fixtures/denton_pulses.json)).
+
+- **The clip is edited**: 8 cuts, two cutaways to the interviewer and wide
+  shots. Only 13 s (1.9-14.7 s) is one continuous close-up, so the full word
+  is never on screen in one piece. The analyzer now finds cuts and treats
+  them honestly (below); before that it read a 5.3 s "dash" that was really
+  4 s of cutaway.
+- **What it reads in that close-up**: `---- ... - -`, against the truth
+  `- --- .-. - ..- .-.` (TORTUR, then the cut). T, O and the second T are
+  read as the right marks; it fails because his pause after T (0.33 s) is as
+  short as the pauses inside O, and at 15 fps his short and long blinks for
+  R and U overlap. Output: `?STT`, not TORTUR. That is a known failing test
+  (`xfail`), kept so a future fix shows up.
+- After fixing the analyzer's frame reading and calibration, it reads 15
+  marks (truth: 15) instead of 18.
+
+## Analyzing recorded video
+
+- **Every frame is read.** The browser seeks frame by frame at 20 fps and
+  waits for each frame to be on screen. Playing the clip and reading what
+  arrived caught only 97 of 616 frames on a slow laptop.
+- **Calibrated per video.** Old film read 0.44 "closure" with eyes open, so
+  fixed thresholds fail. Open = 35th percentile of eye closure, closed = 99th;
+  a sensitivity slider moves the switch point between them.
+- **Close-up faces.** MediaPipe's face detector misses faces that fill the
+  frame; those frames are retried shrunk into a black border (face found in
+  50% -> 100% of frames on a close-up test clip, an AI-generated video).
+- **Edits and lost faces.** A big jump in the picture between frames is a
+  cut. A signal touching a cut, or a stretch of more than 0.25 s with no
+  face, has unknown length, so it is dropped; a cut always ends the word and
+  its "pause" is not used to learn timing.
+- **Review and correct.** Replay the clip with the signals marked, click a
+  row or the timeline to jump there, flip a dot/dash, delete a signal or add
+  one where it was missed.
 
 ## How it works
 

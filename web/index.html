@@ -98,6 +98,17 @@
   .stat span { font-size: .7rem; color: var(--muted); letter-spacing: .08em; }
   @media (max-width: 480px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .channels { grid-template-columns: 1fr; } }
 
+  .review { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  .sens { display: flex; align-items: center; gap: 8px; font: .78rem var(--hud); letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-left: auto; }
+  .sens input { accent-color: var(--signal); width: 120px; }
+  .rnote { color: var(--muted); font-size: .8rem; margin: 8px 0 0; }
+  canvas#scope.timeline { cursor: pointer; }
+  .fix { display: inline-flex; gap: 4px; }
+  .fix button { min-height: 28px; padding: 2px 8px; font-size: .75rem; border-radius: 6px; }
+  tr.active td { background: rgba(245, 158, 11, .14); }
+  tr.edited td.mark { text-decoration: underline dotted; }
+  tr.added td:first-child::after { content: " +"; color: var(--ok); }
+  .fixcol { width: 1%; }
   .log { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
   table { width: 100%; border-collapse: collapse; font-size: .8rem; }
   th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -131,6 +142,10 @@
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
   <symbol id="i-clear" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3 14 9-14 9V3Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></symbol>
   <symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></symbol>
 </svg>
 
@@ -172,10 +187,17 @@
           <span class="tag" id="fps"></span>
         </div>
         <div class="progress hidden" id="progress"><div></div></div>
+        <div class="review hidden" id="review">
+          <button class="primary" id="playBtn"><svg class="i"><use href="#i-play"/></svg><span>Play with signals</span></button>
+          <button id="addMark" title="Add a blink the detector missed, at the current point of the video"><svg class="i"><use href="#i-plus"/></svg>Add blink here</button>
+          <button id="resetEdits"><svg class="i"><use href="#i-undo"/></svg>Undo fixes</button>
+          <label class="sens" id="sensRow">Sensitivity <input type="range" id="sens" min="0.2" max="0.7" step="0.05" value="0.45" aria-label="Blink sensitivity: higher catches fainter blinks"><span id="sensV">0.45</span></label>
+        </div>
+        <p class="rnote hidden" id="reviewNote"></p>
       </div>
 
       <div class="panel">
-        <div class="ptitle"><svg class="i"><use href="#i-signal"/></svg>SIGNAL SCOPE <span class="spacer"></span><span id="scopeLabel"></span></div>
+        <div class="ptitle"><svg class="i"><use href="#i-signal"/></svg><span id="scopeTitle">SIGNAL SCOPE</span> <span class="spacer"></span><span id="scopeLabel"></span></div>
         <canvas id="scope" height="120"></canvas>
       </div>
     </section>
@@ -209,8 +231,8 @@
 
       <div class="panel">
         <div class="ptitle">SIGNAL LOG</div>
-        <div class="log"><table><thead><tr><th>#</th><th>TIME</th><th>LENGTH</th><th>MARK</th><th>CONFIDENCE</th></tr></thead>
-          <tbody id="log"><tr><td colspan="5" class="empty">No signals yet.</td></tr></tbody></table></div>
+        <div class="log"><table><thead><tr><th>#</th><th>TIME</th><th>LENGTH</th><th>MARK</th><th>CONFIDENCE</th><th class="fixcol">FIX</th></tr></thead>
+          <tbody id="log"><tr><td colspan="6" class="empty">No signals yet.</td></tr></tbody></table></div>
       </div>
     </section>
   </div>

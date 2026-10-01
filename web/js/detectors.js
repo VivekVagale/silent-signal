@@ -23,6 +23,28 @@ async function create(Task, options) {
   }
 }
 
+// MediaPipe's VIDEO mode needs every timestamp to be later than the last one it saw.
+// A second video starts again at 0 s, which used to make it throw and silently
+// stop the analysis; this keeps timestamps increasing across videos and camera runs.
+function nextTs(task, tMs) {
+  task._ts = Math.max(Math.round(tMs), (task._ts ?? -1) + 1);
+  return task._ts;
+}
+
+// A face that fills the frame (an extreme close-up of the eyes) is often missed by
+// the face detector, which expects some head and background around it. Shrinking the
+// frame into a black border fixed this on a test clip: faces found in 100% of frames
+// instead of 50%. Returns the padded canvas and how to map points back.
+const padCanvas = document.createElement("canvas"), padCtx = padCanvas.getContext("2d");
+function padded(src, frac = 0.5) {
+  const w = src.videoWidth || src.width, h = src.videoHeight || src.height;
+  const W = Math.round(w * (1 + 2 * frac)), H = Math.round(h * (1 + 2 * frac));
+  if (padCanvas.width !== W || padCanvas.height !== H) { padCanvas.width = W; padCanvas.height = H; }
+  padCtx.fillStyle = "#000"; padCtx.fillRect(0, 0, W, H);
+  padCtx.drawImage(src, Math.round(w * frac), Math.round(h * frac), w, h);
+  return { canvas: padCanvas, unmap: (p) => ({ x: (p.x * W - w * frac) / w, y: (p.y * H - h * frac) / h }) };
+}
+
 // hysteresis: separate switch-on and switch-off levels stop the signal chattering near the threshold
 function hysteresis(state, value, onAt, offAt, higherIsOn = true) {
   if (higherIsOn) return state ? value > offAt : value >= onAt;
@@ -68,19 +90,29 @@ export const blink = {
     this.model = await create(v.FaceLandmarker, {
       baseOptions: { modelAssetPath: `${MODELS}/face_landmarker/face_landmarker/float16/1/face_landmarker.task` },
       runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true,
+      // looser than the 0.5 defaults: old, small or blurry footage (a 320x240 film) still gets tracked
+      minFaceDetectionConfidence: 0.3, minFacePresenceConfidence: 0.3, minTrackingConfidence: 0.3,
     });
     this.reset();
   },
-  reset() { this.on = false; },
-  // MediaPipe blendshapes score eye closure 0-1; both eyes must close, so a wink does not count
+  reset() { this.on = false; this.pad = false; },
+  // MediaPipe blendshapes score eye closure 0-1; both eyes must close, so a wink does not count.
+  // If no face is found, retry on a padded frame (close-ups), and stay padded while that works.
   read(src, tMs) {
-    const res = this.model.detectForVideo(src, tMs);
-    if (!res.faceBlendshapes?.length) { this.on = false; return { on: false, confidence: 0, value: 0, threshold: 0.425, face: null }; }
+    let res, unmap = (p) => p;
+    const tryPad = () => { const pd = padded(src); unmap = pd.unmap; return this.model.detectForVideo(pd.canvas, nextTs(this.model, tMs)); };
+    res = this.pad ? tryPad() : this.model.detectForVideo(src, nextTs(this.model, tMs));
+    if (!res.faceBlendshapes?.length) {
+      unmap = (p) => p;
+      res = this.pad ? this.model.detectForVideo(src, nextTs(this.model, tMs)) : tryPad();
+      if (res.faceBlendshapes?.length) this.pad = !this.pad;
+    }
+    if (!res.faceBlendshapes?.length) { this.on = false; return { on: false, confidence: 0, value: null, threshold: 0.425, found: false }; }
     const s = Object.fromEntries(res.faceBlendshapes[0].categories.map((c) => [c.categoryName, c.score]));
     const closure = Math.min(s.eyeBlinkLeft, s.eyeBlinkRight);
     this.on = hysteresis(this.on, closure, 0.5, 0.35);
-    return { on: this.on, confidence: Math.min(1, Math.abs(closure - 0.425) / 0.425), value: closure, threshold: 0.425,
-             points: res.faceLandmarks[0] ? [33, 133, 159, 145, 362, 263, 386, 374].map((i) => res.faceLandmarks[0][i]) : [] };
+    return { on: this.on, confidence: Math.min(1, Math.abs(closure - 0.425) / 0.425), value: closure, threshold: 0.425, found: true,
+             points: res.faceLandmarks[0] ? [33, 133, 159, 145, 362, 263, 386, 374].map((i) => unmap(res.faceLandmarks[0][i])) : [] };
   },
 };
 
@@ -98,7 +130,7 @@ export const tap = {
   reset() { this.on = false; },
   // thumb tip (4) to index tip (8), divided by hand size (wrist 0 to middle knuckle 9)
   read(src, tMs) {
-    const res = this.model.detectForVideo(src, tMs);
+    const res = this.model.detectForVideo(src, nextTs(this.model, tMs));
     if (!res.landmarks?.length) { this.on = false; return { on: false, confidence: 0, value: 1.2, threshold: 0.3 }; }
     const lm = res.landmarks[0];
     const dist = (a, b) => Math.hypot(lm[a].x - lm[b].x, lm[a].y - lm[b].y);
@@ -130,7 +162,7 @@ export const gesture = {
   reset() { this.current = null; this.since = 0; this.fired = false; },
   // returns {word} once when a gesture has been held for holdS seconds
   read(src, tMs) {
-    const res = this.model.recognizeForVideo(src, tMs);
+    const res = this.model.recognizeForVideo(src, nextTs(this.model, tMs));
     const g = res.gestures?.[0]?.[0];
     const name = g && g.categoryName !== "None" && g.score > 0.6 ? g.categoryName : null;
     const t = tMs / 1000;

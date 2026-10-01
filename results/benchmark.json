@@ -17,6 +17,10 @@
       "fixed_cer": 1.0718
     }
   },
+  "slow_pauses": {
+    "standard_gaps_cer": 2.7866,
+    "learned_gaps_cer": 0.0629
+  },
   "video_flash": {
     "15fps": {
       "cer": 0.0042,

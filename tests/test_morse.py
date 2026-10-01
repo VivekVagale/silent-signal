@@ -43,3 +43,24 @@ def test_states_to_pulses_merges_dropouts_and_drops_flicker():
 def test_cer():
     assert cer("SOS", "SOS") == 0
     assert cer("SOS", "SOT") == pytest.approx(1 / 3)
+
+
+def test_learned_gaps_read_slow_deliberate_pauses():
+    # a person pausing 2.5x longer than Morse's 1 / 3 / 7 units
+    pulses = timeline("SOS HELP", 0.2, jitter=0.0, r=random.Random(0), pause=2.5)
+    assert decode_pulses(pulses).text != "SOS HELP"                  # standard gaps break it apart
+    assert decode_pulses(pulses, learn_gaps=True).text == "SOS HELP"
+
+
+def test_learned_gaps_leave_textbook_timing_alone():
+    pulses = timeline("SOS NEED WATER", 0.15, jitter=0.0, r=random.Random(1))
+    assert decode_pulses(pulses, learn_gaps=True).text == "SOS NEED WATER"
+
+
+def test_dash_dot_split_follows_the_sender():
+    # dashes only 2.5x as long as dots (common with blinks): still read as dashes
+    unit = 0.2
+    pulses, t = [], 0.0
+    for d in (unit, unit, unit, 2.5 * unit, 2.5 * unit, 2.5 * unit):   # S then O
+        pulses.append(Pulse(t, t + d)); t += d + (3 * unit if len(pulses) == 3 else unit)
+    assert decode_pulses(pulses).text == "SO"

@@ -46,19 +46,24 @@ def message(r: random.Random) -> str:
     return " ".join(r.choice(WORDS) for _ in range(r.randint(1, 3)))
 
 
-def timeline(text: str, unit: float, jitter: float, r: random.Random) -> list[Pulse]:
-    """Ideal Morse timing for text, each duration scaled by lognormal noise."""
+def timeline(text: str, unit: float, jitter: float, r: random.Random, pause: float = 1.0) -> list[Pulse]:
+    """Ideal Morse timing for text, each duration scaled by lognormal noise.
+
+    pause > 1 stretches every gap, like a person blinking on purpose who rests
+    much longer between blinks than Morse's 1 / 3 / 7 units.
+    """
     wobble = lambda d: d * float(np.exp(r.gauss(0, jitter)))
+    gap = lambda d: pause * wobble(d)
     t, pulses = 0.5, []
     for wi, word in enumerate(text.split()):
         if wi:
-            t += wobble(7 * unit)        # gap between words
+            t += gap(7 * unit)          # gap between words
         for li, ch in enumerate(word):
             if li:
-                t += wobble(3 * unit)
+                t += gap(3 * unit)
             for si, sym in enumerate(MORSE[ch]):
                 if si:
-                    t += wobble(unit)
+                    t += gap(unit)
                 d = wobble(unit if sym == "." else 3 * unit)
                 pulses.append(Pulse(t, t + d))
                 t += d
@@ -79,6 +84,18 @@ def timing_test(r: random.Random) -> dict:
                                    "fixed_cer": round(float(np.mean(fixed)), 4)}
         print(f"timing  jitter {jitter:.2f}:  adaptive CER {np.mean(adaptive):.3f}   fixed-threshold CER {np.mean(fixed):.3f}")
     return out
+
+
+def pause_test(r: random.Random) -> dict:
+    """Deliberate signallers: gaps stretched 2.5x. Standard gap thresholds vs gaps learned from the data."""
+    std, learned = [], []
+    for _ in range(300):
+        text = message(r)
+        p = timeline(text, r.uniform(0.15, 0.4), 0.15, r, pause=2.5)
+        std.append(cer(text, decode_pulses(p, default_split=0.3).text))
+        learned.append(cer(text, decode_pulses(p, default_split=0.3, learn_gaps=True).text))
+    print(f"pauses 2.5x, jitter 0.15:  standard gaps CER {np.mean(std):.3f}   learned gaps CER {np.mean(learned):.3f}")
+    return {"standard_gaps_cer": round(float(np.mean(std)), 4), "learned_gaps_cer": round(float(np.mean(learned)), 4)}
 
 
 def _fixed_decode(pulses: list[Pulse]) -> str:
@@ -138,7 +155,8 @@ def video_test(r: random.Random, tmp: Path) -> dict:
 
 def main() -> None:
     r = random.Random(42)
-    results = {"timing": timing_test(r), "video_flash": video_test(r, ROOT / "results" / "tmp_clips")}
+    # each new test gets its own seed, so adding one does not change the clips the others draw
+    results = {"timing": timing_test(r), "slow_pauses": pause_test(random.Random(7)), "video_flash": video_test(r, ROOT / "results" / "tmp_clips")}
     for f in (ROOT / "results" / "tmp_clips").glob("*.mp4"):
         f.unlink()
     (ROOT / "results" / "tmp_clips").rmdir()

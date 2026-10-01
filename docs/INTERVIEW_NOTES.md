@@ -60,6 +60,43 @@ that errors compound over a message. Next step: decode with a dictionary /
 language model, choosing the most likely words given the uncertain marks
 (beam search), the same trick phone keyboards use.
 
+## Real footage broke my assumptions (second best talking point)
+
+I tested the video analyzer on the 1966 clip of Jeremiah Denton blinking
+TORTURE as a prisoner of war. Each failure taught something:
+
+1. **Uploading a second video did nothing.** MediaPipe's VIDEO mode needs
+   strictly increasing timestamps; a new clip restarted at 0. Fix: keep a
+   counter that only goes up.
+2. **Most frames were never read.** Playing the clip and reading frames as
+   they arrived got 97 of 616 on a slow laptop. Fix: seek frame by frame and
+   wait (`requestVideoFrameCallback`) until each frame is really shown.
+3. **The eyes were not found in close-ups.** The face detector is tuned for
+   faces that do not fill the frame. Fix: retry those frames shrunk into a
+   black border (50% -> 100% of frames on a close-up test clip, which is an
+   AI-generated video, not real Morse).
+4. **Fixed thresholds failed.** In grainy 320x240 film an open eye already
+   scores 0.44. Fix: calibrate per video (open = 35th percentile, closed =
+   99th) with a sensitivity slider.
+5. **Deliberate blinkers pause far longer than Morse says.** Denton paused
+   0.5-1.4 s between letters (Morse: about 3 dot lengths). Fix: learn the pause groups with 3-cluster
+   k-means on log pauses, used only when even the shortest pauses are much
+   longer than a unit. A bug here: starting the clusters at quantiles put two
+   centres on the common in-letter pause, so a lone word gap got no cluster
+   ("SOSHELP"). Starting them evenly across the range fixed it.
+6. **News clips are edited.** The "5.3 s dash" at the end was really 4 s of
+   cutaway with the last eye state carried over. Fix: detect cuts (a big
+   jump in the picture), drop signals cut off by an edit or by a face lost
+   for over 0.25 s, and end the word at every cut.
+
+Where it stands: 15 marks found (truth 15, was 18), T, O and T read
+correctly, but not the whole word. His pause after T is as short as the
+pauses inside O, and at 15 fps his short and long blinks for R and U
+overlap. A person reading it knows the answer; the timing alone does not
+say it. That is why the app has a review mode: replay, flip, delete or add
+marks. I kept a strict `xfail` test for "TORTUR" so a real fix is noticed,
+rather than tuning thresholds until this one clip passes.
+
 ## Why a browser app
 
 Target users (patients, carers) will not install Python. MediaPipe ships a

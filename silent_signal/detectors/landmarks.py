@@ -53,15 +53,30 @@ class BlinkDetector(Detector):
     def __init__(self, close_at: float = 0.5, open_at: float = 0.35):
         opts = vision.FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=model_path("face_landmarker.task")),
-            running_mode=vision.RunningMode.VIDEO, num_faces=1, output_face_blendshapes=True)
+            running_mode=vision.RunningMode.VIDEO, num_faces=1, output_face_blendshapes=True,
+            # looser than the 0.5 defaults, so old or low-resolution footage still gets tracked
+            min_face_detection_confidence=0.3, min_face_presence_confidence=0.3, min_tracking_confidence=0.3)
         self.model = vision.FaceLandmarker.create_from_options(opts)
-        self.close_at, self.open_at, self.on = close_at, open_at, False
+        self.close_at, self.open_at, self.on, self.pad, self.ts = close_at, open_at, False, False, -1
+
+    def _detect(self, frame, t, pad):
+        if pad:                                  # shrink the frame into a black border: close-ups get found
+            h, w = frame.shape[:2]
+            canvas = np.zeros((h * 2, w * 2, 3), np.uint8)
+            canvas[h // 2:h // 2 + h, w // 2:w // 2 + w] = frame
+            frame = canvas
+        self.ts = max(int(t * 1000), self.ts + 1)    # MediaPipe needs strictly increasing timestamps
+        return self.model.detect_for_video(to_mp_image(frame), self.ts)
 
     def read(self, frame_bgr: np.ndarray, t: float) -> FrameReading:
-        res = self.model.detect_for_video(to_mp_image(frame_bgr), int(t * 1000))
+        res = self._detect(frame_bgr, t, self.pad)
+        if not res.face_blendshapes:             # a face filling the frame is often missed: retry the other way
+            res = self._detect(frame_bgr, t, not self.pad)
+            if res.face_blendshapes:
+                self.pad = not self.pad
         if not res.face_blendshapes:
             self.on = False
-            return FrameReading(False, 0.0, 0.0)
+            return FrameReading(False, 0.0, 0.0, found=False)
         scores = {c.category_name: c.score for c in res.face_blendshapes[0]}
         closure = min(scores["eyeBlinkLeft"], scores["eyeBlinkRight"])   # both eyes
         self.on = closure >= self.close_at if not self.on else closure > self.open_at

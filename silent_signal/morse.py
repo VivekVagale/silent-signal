@@ -92,44 +92,116 @@ def _two_means_log(values: list[float]) -> tuple[float, float]:
     return math.exp(c1), math.exp(c2)
 
 
-def estimate_unit(durations: list[float], default_split: float) -> float:
-    """Dot length in seconds, learned from ON durations.
+def mark_split(durations: list[float], default_split: float) -> tuple[float, float]:
+    """(dot/dash boundary, unit) in seconds, learned from ON durations.
 
     If short and long pulses are both present (longest >= 2 x shortest),
-    cluster them into dots and dashes on a log scale; the unit is the
-    geometric mean of the dot centre and dash centre / 3, so both kinds of
-    pulse inform it. Otherwise all pulses are the same kind, and the default
-    split decides which kind.
+    cluster them into dots and dashes on a log scale. The boundary is the
+    geometric midpoint of the two centres, so a sender whose dashes are only
+    2.5x their dots (common with blinks) is still read correctly; for textbook
+    1:3 timing this equals 1.73 units. The unit is the geometric mean of the
+    dot centre and dash centre / 3. If all pulses look alike, the default split
+    decides which kind they are.
     """
     lo, hi = min(durations), max(durations)
     if hi >= 2 * lo:
         dot, dash = _two_means_log(durations)
-        return math.sqrt(dot * dash / 3)
+        return math.sqrt(dot * dash), math.sqrt(dot * dash / 3)
     typical = math.exp(sum(math.log(d) for d in durations) / len(durations))
-    return typical if typical < default_split else typical / 3
+    unit = typical if typical < default_split else typical / 3
+    return DOT_DASH * unit, unit
+
+
+def estimate_unit(durations: list[float], default_split: float) -> float:
+    """Dot length in seconds (see mark_split)."""
+    return mark_split(durations, default_split)[1]
+
+
+def _kmeans_log(values: list[float], k: int) -> list[float]:
+    """1-D k-means on log(values), started evenly spaced from min to max. Returns sorted centres (seconds).
+
+    Starting at the range, not at quantiles, lets a rare group (e.g. a single
+    word gap among many inside-letter gaps) still get its own centre.
+    """
+    logs = sorted(math.log(v) for v in values)
+    centres = [logs[0] + i * (logs[-1] - logs[0]) / (k - 1) for i in range(k)]
+    for _ in range(100):
+        groups = [[] for _ in range(k)]
+        for x in logs:
+            groups[min(range(k), key=lambda j: abs(x - centres[j]))].append(x)
+        new = [sum(g) / len(g) if g else c for g, c in zip(groups, centres)]
+        if new == centres:
+            break
+        centres = new
+    return sorted(math.exp(c) for c in centres)
+
+
+def classify_gaps(gaps: list[float], unit: float, learn: bool = False) -> list[int]:
+    """Label each OFF gap: 0 = same letter, 1 = next letter, 2 = next word.
+
+    Standard Morse: thresholds at 1.73 and 4.58 units. But people blinking on
+    purpose pause far longer than 1 / 3 / 7 units (in a filmed example: 0.1-0.4 s
+    inside a letter, 0.5-1.4 s between letters, with 0.2 s dots).
+    With learn=True the pause groups come from the pauses: cluster them on a
+    log scale into 3 groups (inside letter / between letters / between words),
+    or 2 if 3 do not separate, accepting groups only when their centres are at
+    least 1.8x apart. With 2 groups, the lower one is "same letter" if it is
+    under 3 units, otherwise "next letter". Boundaries sit at the geometric
+    midpoints. Learning only kicks in when even the shortest pause group is
+    over 1.6 units: for textbook timing the standard rules are better. Too few
+    pauses, or no clear groups: standard thresholds.
+    """
+    standard = [2 if g >= WORD * unit else 1 if g >= LETTER * unit else 0 for g in gaps]
+    pos = [g for g in gaps if g > 0]
+    if not learn or len(pos) < 4:
+        return standard
+    for k in (3, 2):
+        if len(pos) < k + 2:
+            continue
+        c = _kmeans_log(pos, k)
+        if c[0] < 1.6 * unit:        # shortest pauses are Morse-like (about 1 unit): keep the standard rules
+            return standard
+        if all(b / a >= 1.8 for a, b in zip(c, c[1:])):
+            cuts = [math.sqrt(a * b) for a, b in zip(c, c[1:])]
+            if k == 3:
+                lo, hi = cuts
+            else:
+                lo, hi = (cuts[0], math.inf) if c[0] < 3 * unit else (0.0, cuts[0])
+            return [2 if g >= hi else 1 if g >= lo else 0 for g in gaps]
+    return standard
 
 
 def decode_pulses(pulses: list[Pulse], default_split: float = 0.3,
-                  unit: float | None = None) -> Decoded:
+                  unit: float | None = None, learn_gaps: bool = False,
+                  breaks: list[float] | None = None) -> Decoded:
     """Turn a sequence of ON pulses into Morse and text.
 
     ON time decides dot vs dash (threshold 1.73 units). OFF time between
-    pulses decides structure: under 1.73 units = same letter, under 4.58 =
-    next letter, longer = next word. Pass `unit` to fix the speed instead of
-    learning it (the live app does this until it has seen enough pulses).
+    pulses decides structure (see classify_gaps). Pass `unit` to fix the speed
+    instead of learning it. learn_gaps=True learns the pause groups from the
+    pauses, for deliberate signallers whose pauses are much longer than Morse's.
+    `breaks` are times where the recording is interrupted (a cut in an edited
+    video): a pause containing one has unknown length, so it is not used for
+    learning and always ends the word.
     """
     pulses = sorted(pulses, key=lambda p: p.start)
     if not pulses:
         return Decoded("", "", [], unit or default_split / DOT_DASH)
-    u = unit or estimate_unit([p.duration for p in pulses], default_split)
-    marks = ["." if p.duration < DOT_DASH * u else "-" for p in pulses]
+    if unit:
+        split, u = DOT_DASH * unit, unit
+    else:
+        split, u = mark_split([p.duration for p in pulses], default_split)
+    marks = ["." if p.duration < split else "-" for p in pulses]
+    pairs = list(zip(pulses, pulses[1:]))
+    broken = [any(prev.end <= b <= cur.start for b in breaks or []) for prev, cur in pairs]
+    kinds = classify_gaps([cur.start - prev.end for (prev, cur), x in zip(pairs, broken) if not x], u, learn_gaps)
+    kinds = [2 if x else kinds.pop(0) for x in broken]
 
     parts = [marks[0]]
-    for prev, cur, mark in zip(pulses, pulses[1:], marks[1:]):
-        gap = cur.start - prev.end
-        if gap >= WORD * u:
+    for kind, mark in zip(kinds, marks[1:]):
+        if kind == 2:
             parts.append(" / ")
-        elif gap >= LETTER * u:
+        elif kind == 1:
             parts.append(" ")
         parts.append(mark)
     morse = "".join(parts)

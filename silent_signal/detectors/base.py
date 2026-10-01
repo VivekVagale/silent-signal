@@ -17,6 +17,7 @@ class FrameReading:
     on: bool
     confidence: float     # 0-1, how sure the detector is about this frame
     value: float          # the raw measurement (eye closure, pinch distance, brightness), for plots
+    found: bool = True    # False when the detector saw nothing to measure (no face, no hand)
 
 
 class Detector(ABC):

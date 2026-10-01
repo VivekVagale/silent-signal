@@ -1,0 +1,75 @@
+{
+ "source": "Pulse timings measured by silent_signal.analyze --channel blink from a 41 s, 320x240, 15 fps news clip of Jeremiah Denton's 1966 televised interview (the clip itself is not stored). Only shot 1 (1.87-14.73 s) is continuous close-up; cuts at 14.73 and 18.47 s, cutaways 21.53-28.53 and 35.40-39.47 s.",
+ "truth": "TORTURE = - / --- / .-. / - / ..- / .-. / .",
+ "breaks_s": [
+  1.87,
+  14.73,
+  18.47,
+  21.53,
+  28.53,
+  35.4,
+  39.47
+ ],
+ "pulses": [
+  [
+   2.4,
+   3.467
+  ],
+  [
+   3.8,
+   4.333
+  ],
+  [
+   4.6,
+   5.067
+  ],
+  [
+   5.267,
+   5.867
+  ],
+  [
+   6.6,
+   6.933
+  ],
+  [
+   7.067,
+   7.267
+  ],
+  [
+   7.467,
+   7.667
+  ],
+  [
+   8.6,
+   9.533
+  ],
+  [
+   10.0,
+   11.2
+  ],
+  [
+   12.6,
+   13.267
+  ],
+  [
+   13.4,
+   13.533
+  ],
+  [
+   18.667,
+   19.067
+  ],
+  [
+   29.933,
+   30.133
+  ],
+  [
+   32.0,
+   33.333
+  ],
+  [
+   33.733,
+   34.467
+  ]
+ ]
+}
