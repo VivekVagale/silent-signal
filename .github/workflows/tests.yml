@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # MediaPipe pulls in OpenCV, which needs libGL on the runner.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libgl1
+      - run: pip install -r requirements.txt
+      # Downloads the MediaPipe landmark models once, then decodes the sample videos end to end.
+      - run: python -m pytest -q

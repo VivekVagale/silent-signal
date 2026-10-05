@@ -1,5 +1,7 @@
 # Silent Signal
 
+[![tests](https://github.com/VivekVagale/silent-signal/actions/workflows/tests.yml/badge.svg)](https://github.com/VivekVagale/silent-signal/actions/workflows/tests.yml)
+
 **Talk without sound.** Blink, touch your fingertips together, or flash a
 light, and Silent Signal reads it as Morse code; fingerspell in sign
 language (ASL), and it reads the letters; sign whole words in Indian Sign
