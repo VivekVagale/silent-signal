@@ -102,6 +102,10 @@ in this repo, only the measured blink timings in
   cut. A signal touching a cut, or a stretch of more than 0.25 s with no
   face, has unknown length, so it is dropped; a cut always ends the word and
   its "pause" is not used to learn timing.
+- **Decoded live.** The message types itself out while the clip is read,
+  as in live camera mode (thresholds from the frames seen so far), then is
+  recalibrated on the whole clip at the end. Replay types it out again in
+  step with the video.
 - **Review and correct.** Replay the clip with the signals marked, click a
   row or the timeline to jump there, flip a dot/dash, delete a signal or add
   one where it was missed.

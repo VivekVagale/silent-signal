@@ -259,6 +259,7 @@ async function analyzeVideo(file) {
     $("sig").classList.toggle("on", !!r.on);
     drawOverlay(r); drawScope(t);
     $("progress").firstElementChild.style.width = `${(100 * t) / dur}%`;
+    if (state.series.length % 3 === 0) showLive(t);
   };
   // Step through at a fixed 20 frames per second. After each jump, wait until the browser
   // reports that the frame for that time is actually on screen (requestVideoFrameCallback)
@@ -292,7 +293,15 @@ const pct = (arr, q) => { const s = [...arr].sort((a, b) => a - b); return s[Mat
 
 // Calibrate to this video, find the pulses, apply the user's corrections, decode.
 function recompute() {
-  const ch = state.channel, S = state.series, note = [];
+  const { result, note } = decodeSeries(state.series);
+  state.result = result;
+  finishRecompute(note);
+}
+
+// The frames read so far -> pulses and text. live = true while the clip is still being read:
+// calibration then uses only the frames seen so far, and a signal still ON stays open.
+function decodeSeries(S, live = false) {
+  const ch = state.channel, note = [];
   let states, thr = null;
   if (ch.id === "blink") {
     // Every face and camera reads differently (in an old 320x240 film the open eye
@@ -302,20 +311,21 @@ function recompute() {
     const vals = S.filter((s) => s.found).map((s) => s.v);
     const seen = vals.length / Math.max(1, S.length);
     if (seen < 0.95) note.push(`Face found in ${Math.round(seen * 100)}% of frames; short gaps are bridged, longer ones count as unseen.`);
-    if (vals.length < 10) { state.result = { pulses: [], marks: [], kinds: [], morse: "", text: "", thr: null, unit: null }; note.push("No face found, so no blinks could be read."); return finishRecompute(note); }
+    if (vals.length < 10) { note.push("No face found, so no blinks could be read."); return { result: { pulses: [], marks: [], kinds: [], morse: "", text: "", thr: null, unit: null, key: (p) => p.start.toFixed(2) }, note, active: false }; }
     const open = pct(vals, 0.35), closed = pct(vals, 0.99), span = closed - open, sens = +$("sens").value;
     if (span < 0.12) note.push("The eyes barely change in this clip: no clear blinks to read.");
     const onAt = closed - sens * span, offAt = Math.min(onAt, closed - (sens + 0.2) * span);
     thr = onAt;
     let on = false;
-    states = S.map((s) => { if (s.found) on = on ? s.v > offAt : s.v >= onAt; return on; });
+    // live, before the first blink the eyes have barely moved: thresholds would sit in the noise
+    states = live && span < 0.12 ? S.map(() => false) : S.map((s) => { if (s.found) on = on ? s.v > offAt : s.v >= onAt; return on; });
   } else {
     states = S.map((s) => s.on);               // flash and press detectors already adapt to the scene
   }
   // per-frame states -> pulses, using the same cleaning as live mode
   const tr = new PulseTracker({ minOn: ch.minOn ?? 0.05, minOff: ch.minOff ?? 0.04 });
   S.forEach((s, i) => tr.push(s.t, states[i], s.conf ?? 1));
-  if (S.length) tr.push(S.at(-1).t + 0.01, false, 0);
+  if (S.length && !live) tr.push(S.at(-1).t + 0.01, false, 0);
   // Edited clips: the first frame of each shot, and any long stretch with no face, are "blind".
   // A signal touching one was cut off, so its length is unknown: drop it. A cut always ends the word.
   const blind = S.map((s) => !!s.cut);
@@ -337,8 +347,34 @@ function recompute() {
   const d = decodePulses(pulses, ch.defaultSplit, currentUnit(), true, breaks);
   const marks = d.marks.map((m, i) => (state.edits.flipped.has(key(pulses[i])) ? (m === "." ? "-" : ".") : m));
   const morse = assemble(marks, d.kinds);
-  state.result = { pulses, marks, kinds: d.kinds, morse, text: decodeMorse(morse).text, thr, unit: d.unit, key };
-  finishRecompute(note);
+  return { result: { pulses, marks, kinds: d.kinds, morse, text: decodeMorse(morse).text, thr, unit: d.unit, key }, note, active: tr.active };
+}
+
+// While the clip is being read: show the message as it forms, like the live camera does.
+function showLive(t) {
+  const { result: R, active } = decodeSeries(state.series, true);
+  const last = R.pulses.at(-1);
+  let gapTxt = "";
+  if (active) gapTxt = "SIGNAL ON";
+  else if (last && R.unit) {
+    const gap = t - last.end;
+    gapTxt = gap >= WORD * R.unit ? "WORD BREAK" : gap >= LETTER * R.unit ? "LETTER BREAK" : "LISTENING…";
+  }
+  showText(R.text, R.morse, active);
+  $("gap").textContent = gapTxt;
+  showStats(R.pulses.length, R.unit, R.pulses.map((p) => p.confidence ?? 1), R.pulses.length);
+  $("log").innerHTML = R.pulses.length
+    ? R.pulses.map((p, i) => `<tr><td>${i + 1}</td><td>${p.start.toFixed(2)}s</td><td>${Math.round((p.end - p.start) * 1000)} ms</td>
+        <td class="mark">${R.marks[i] === "." ? "· dot" : "— dash"}</td><td>${confBar(p.confidence ?? 1)}</td><td></td></tr>`).reverse().join("")
+    : `<tr><td colspan="6" class="empty">No signals yet.</td></tr>`;
+}
+
+// Review playback: type the message out as the video reaches each signal.
+function showUpTo(t) {
+  const R = state.result, n = R.pulses.filter((p) => p.end <= t).length;
+  const active = R.pulses.some((p) => p.start <= t && t < p.end);
+  const morse = assemble(R.marks.slice(0, n), R.kinds.slice(0, Math.max(0, n - 1)));
+  showText(decodeMorse(morse).text, morse, active);
 }
 function finishRecompute(note) {
   const ed = state.edits, n = ed.deleted.size + ed.flipped.size + ed.added.length;
@@ -401,6 +437,7 @@ function playLoop() {
   if (!state.playing) return;
   const t = video.currentTime, R = state.result;
   $("sig").classList.toggle("on", !!R?.pulses.some((p) => p.start <= t && t <= p.end));
+  showUpTo(t);
   drawTimeline();
   document.querySelectorAll("#log tr[data-i]").forEach((tr) => {
     const p = R.pulses[+tr.dataset.i];
@@ -410,7 +447,9 @@ function playLoop() {
   requestAnimationFrame(playLoop);
 }
 function stopPlayback() {
+  const was = state.playing;
   state.playing = false; video.pause();
+  if (was && state.result) video.ended ? renderResult() : showUpTo(video.currentTime);   // paused: keep the text where the video is
   $("playBtn").querySelector("span").textContent = "Play with signals";
   $("playBtn").querySelector("use").setAttribute("href", "#i-play");
 }
@@ -418,6 +457,7 @@ $("playBtn").onclick = () => {
   if (state.playing) return stopPlayback();
   if (video.ended || video.currentTime >= video.duration - 0.05) video.currentTime = 0;
   state.playing = true; video.muted = false; video.playbackRate = 1;
+  showUpTo(video.currentTime);
   video.play();
   $("playBtn").querySelector("span").textContent = "Pause";
   $("playBtn").querySelector("use").setAttribute("href", "#i-pause");
