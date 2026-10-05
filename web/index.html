@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Silent Signal</title>
-<meta name="description" content="Talk without sound: blinks, finger presses and light flashes decoded from Morse in real time, in your browser.">
+<meta name="description" content="Talk without sound: blinks, finger presses and light flashes decoded from Morse, and ASL fingerspelling read from your hand, in real time, in your browser.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f59e0b' stroke-width='2'><circle cx='12' cy='12' r='2'/><path d='M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -152,7 +152,7 @@
 <main>
   <header>
     <div class="brand"><svg class="i"><use href="#i-signal"/></svg>
-      <div><h1>SILENT SIGNAL</h1><div class="tag">TALK WITHOUT SOUND · BLINK · PRESS · FLASH</div></div></div>
+      <div><h1>SILENT SIGNAL</h1><div class="tag">TALK WITHOUT SOUND · BLINK · PRESS · FLASH · SIGN</div></div></div>
     <div class="spacer"></div>
     <div class="modes" role="tablist" aria-label="Mode">
       <button id="mLive" class="on" role="tab" aria-selected="true"><svg class="i"><use href="#i-cam"/></svg>Live camera</button>
@@ -176,7 +176,7 @@
               <p id="phText">Your camera feed is processed on this device only. Nothing is uploaded.</p>
               <button class="primary" id="start"><svg class="i"><use href="#i-cam"/></svg>Start camera</button>
               <label class="file hidden" id="pick"><button class="primary" tabindex="-1"><svg class="i"><use href="#i-upload"/></svg>Choose a video</button><input type="file" id="file" accept="video/*" aria-label="Choose a video to analyze"></label>
-              <button class="hidden sample" id="sampleBlink" data-ch="blink" data-src="samples/blink_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-eye"/></svg>Blink sample</button><button class="hidden sample" id="sampleFlash" data-ch="flash" data-src="samples/flash_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-flash"/></svg>Flash sample</button>
+              <button class="hidden sample" id="sampleBlink" data-ch="blink" data-src="samples/blink_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-eye"/></svg>Blink sample</button><button class="hidden sample" id="sampleFlash" data-ch="flash" data-src="samples/flash_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-flash"/></svg>Flash sample</button><button class="hidden sample" id="sampleSign" data-ch="sign" data-src="samples/sign_be_bold.mp4" style="margin-left:8px"><svg class="i"><use href="#i-sign"/></svg>Sign sample</button>
             </div>
           </div>
         </div>
@@ -245,7 +245,7 @@
   <footer>
     Timing is learned from you: the dot/dash boundary and letter/word gaps adapt to how fast you signal (1-D k-means on a log scale).
     Blinks and finger presses use Google MediaPipe landmark models; flashes use plain image brightness. Everything runs in your browser.
-    Hand gestures are MediaPipe's 7 built-in shapes used as word shortcuts, not full sign language.
+    Sign language is ASL fingerspelling (one letter per hand shape), read by a small network trained on real signers' hand landmarks. Whole-word signs and Indian Sign Language are not covered yet.
     <br>Code, benchmark and design notes: <a href="https://github.com/VivekVagale/silent-signal">github.com/VivekVagale/silent-signal</a> · by Vivek Vagale
   </footer>
 </main>

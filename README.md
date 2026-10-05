@@ -1,17 +1,20 @@
 # Silent Signal
 
 **Talk without sound.** Blink, touch your fingertips together, or flash a
-light, and Silent Signal reads it as Morse code and turns it into text and
-speech, live from a webcam or from a recorded video. For people who cannot
+light, and Silent Signal reads it as Morse code; or fingerspell in sign
+language (ASL), and it reads the letters. It turns them into text and speech,
+live from a webcam or from a recorded video. For people who cannot
 speak (after a stroke, on a ventilator, with ALS) or in places where you
 cannot make a sound.
 
 **Live demo: https://vivekvagale.github.io/silent-signal/** : runs in your
 browser; camera frames never leave your device. No camera? Open *Analyze
-video* and press *Blink sample* or *Flash sample*. Both clips are synthetic:
-a computer-generated MakeHuman face (CC0) blinking "SOS HELP", and a rendered
-torch. Both decode exactly, and a test checks it
-([how the blink clip is made](tools/blink_sample/README.md)).
+video* and press *Blink sample*, *Flash sample* or *Sign sample*. All three
+clips are synthetic: a computer-generated MakeHuman face (CC0) blinking
+"SOS HELP", a rendered torch flashing it, and a computer-generated signer
+fingerspelling "BE BOLD". All three decode exactly, and a test checks it
+(how the [blink](tools/blink_sample/README.md) and
+[sign](tools/sign_sample/README.md) clips are made).
 
 ## Channels
 
@@ -20,11 +23,11 @@ torch. Both decode exactly, and a test checks it
 | Eye blink | short blink = dot, long blink = dash | MediaPipe FaceLandmarker blendshapes (eye closure 0-1, both eyes) |
 | Finger press | index fingertip touches thumb: short = dot, long = dash | MediaPipe HandLandmarker, fingertip distance / hand size |
 | Light flash | torch or phone light: short = dot, long = dash | OpenCV: brightest spot after a light blur, adaptive dark/bright levels |
-| Hand gesture | hold 👍 👎 ✋ ✌️ ☝️ ✊ 🤟 for 1 s to type a word | MediaPipe GestureRecognizer (7 built-in gestures) |
+| Sign language | ASL fingerspelling: hold each letter about half a second; lower the hand for a space | MediaPipe HandLandmarker (21 points) + a small network trained on real signers' landmarks |
 
-The gesture channel is a set of word shortcuts, **not sign language**.
-Recognising a sign-language alphabet needs a model trained on sign data;
-the channel interface is ready for one.
+Sign language here means **ASL fingerspelling** (A-Z, one hand), not whole
+signs. Indian Sign Language fingerspelling mostly uses two hands and has far
+less public data, so it is the next step, not this one.
 
 ## Results
 
@@ -64,6 +67,24 @@ people on camera; they are not simulated. They were checked by hand, not
 measured. Above ~25% timing wobble errors climb fast, because single
 dot/dash and gap decisions start to flip; the fix is word-level correction
 with a dictionary (next step).
+
+**Sign language letters**: a network of 63 inputs (21 hand points relative
+to the wrist, scaled by palm length) -> 64 -> 26 letters, written in numpy
+(no ML framework), trained on [ASLNow!](https://huggingface.co/datasets/sid220/asl-now-fingerspelling)
+(MIT): 2,122 frames of MediaPipe hand landmarks from several signers.
+Stratified 5-fold cross-validation (`python -m silent_signal.train_signs`):
+
+| | Accuracy |
+|---|---|
+| no augmentation | 90.2% |
+| with augmentation (this project): mirror, rotate ±20°, stretch, jitter | **96.6%** (macro F1 0.967) |
+| the other hand (frames mirrored), no augmentation | 72.6% |
+| the other hand, with augmentation | **96.0%** |
+
+The frames carry no signer id, so the same people appear in training and
+test folds: treat 96.6% as an upper bound for a new person. Most confused:
+R/U, P/Z (Z is a moving letter seen as one frame), O/E. On the synthetic
+signer, U with the fingers together is still read as V.
 
 ### A real test: Jeremiah Denton, 1966
 
@@ -120,6 +141,7 @@ flowchart LR
     D -->|press| H[HandLandmarker<br/>pinch distance]
     D -->|flash| F[OpenCV<br/>brightest spot]
     B & H & F --> S[ON/OFF with hysteresis<br/>+ confidence]
+    D -->|sign| G[HandLandmarker<br/>21 points] --> N[letter network<br/>hold to type] --> X
     S --> P[pulses<br/>drop flicker, merge dropouts]
     P --> T[learn speed<br/>log-scale 2-means]
     T --> M[dots, dashes, gaps]
@@ -149,7 +171,8 @@ uv venv --python 3.11 .venv
 .venv\Scripts\activate
 uv pip install -r requirements.txt
 
-python -m silent_signal.analyze clip.mp4 --channel flash      # or blink / tap; --json out.json
+python -m silent_signal.analyze clip.mp4 --channel flash      # or blink / tap / sign; --json out.json
+python -m silent_signal.train_signs                           # sign letters: needs data/asl-now (see the file's docstring)
 python -m silent_signal.benchmark                             # the numbers above
 python -m pytest
 python -m http.server 8000 --directory web                    # the browser app on localhost:8000

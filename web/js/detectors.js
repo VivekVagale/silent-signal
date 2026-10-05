@@ -141,37 +141,79 @@ export const tap = {
   },
 };
 
-// Not Morse: MediaPipe's built-in gesture model recognises 7 hand shapes. Held
-// for 1 second, each one types a whole word. This is a shortcut, not sign language.
-export const GESTURE_WORDS = {
-  Thumb_Up: "YES", Thumb_Down: "NO", Open_Palm: "STOP", Victory: "OK",
-  Pointing_Up: "WAIT", Closed_Fist: "HELP", ILoveYou: "I LOVE YOU",
-};
+// Not Morse: sign language. ASL fingerspelling, one letter per hand shape. MediaPipe
+// HandLandmarker gives 21 points; a small network trained on real signers' landmarks
+// (silent_signal/train_signs.py, same weights as the Python side) names the letter.
+// Hold a letter HOLD seconds to type it; lower the hand for SPACE seconds for a space.
+export const SIGN = { HOLD: 0.4, MIN_CONF: 0.6, GRACE: 0.15, SPACE: 1.0 };
 
-export const gesture = {
-  id: "gesture", label: "Hand gesture", hint: "Hold a gesture for 1 second: 👍 YES · 👎 NO · ✋ STOP · ✌️ OK · ☝️ WAIT · ✊ HELP · 🤟 I LOVE YOU.",
-  isGesture: true, valueLabel: "gesture score", range: [0, 1], holdS: 1.0,
+// 21 landmarks -> 63 numbers: relative to the wrist, scaled by palm length (as in signs.py)
+export function signFeatures(lm) {
+  const w = lm[0], size = Math.hypot(lm[9].x - w.x, lm[9].y - w.y) + 1e-6, f = [];
+  for (const q of lm) f.push((q.x - w.x) / size, (q.y - w.y) / size, (q.z - w.z) / size);
+  return f;
+}
+
+export function letterProbs(net, f) {
+  let h = f.map((v, i) => (v - net.mean[i]) / net.std[i]);
+  net.layers.forEach((L, k) => {
+    const out = L.b.slice();
+    for (let i = 0; i < h.length; i++) { const hi = h[i]; if (hi) for (let j = 0; j < out.length; j++) out[j] += hi * L.W[i][j]; }
+    h = k < net.layers.length - 1 ? out.map((v) => Math.max(0, v)) : out;
+  });
+  const m = Math.max(...h), e = h.map((v) => Math.exp(v - m)), s = e.reduce((a, b) => a + b, 0);
+  return e.map((v) => v / s);
+}
+
+// per-frame (time, letter or null, confidence) -> typed letters and spaces (as Typer in signs.py)
+export class SignTyper {
+  constructor(o = SIGN) { Object.assign(this, { hold: o.HOLD, minConf: o.MIN_CONF, grace: o.GRACE, space: o.SPACE }); this.reset(); }
+  reset() { this.current = null; this.since = 0; this.lastSeen = -Infinity; this.fired = false; this.handGone = null; this.typed = []; }
+  push(t, letter, conf, hand = true) {
+    let out = null;
+    if (!hand) {
+      if (this.handGone === null) this.handGone = t;
+      if (t - this.handGone >= this.space && this.typed.length && this.typed.at(-1).ch !== " ") out = " ";
+    } else this.handGone = null;
+    const cand = hand && letter && conf >= this.minConf ? letter : null;
+    if (cand !== null && cand === this.current) this.lastSeen = t;
+    else if (cand === null && this.current !== null && t - this.lastSeen <= this.grace) { /* a short blur: keep holding */ }
+    else if (cand !== this.current) { this.current = cand; this.since = t; this.lastSeen = t; this.fired = false; }
+    if (this.current && cand === this.current && !this.fired && t - this.since >= this.hold) { this.fired = true; out = this.current; }   // type on a sure frame
+    if (out) this.typed.push({ t, ch: out, confidence: conf });
+    return out;
+  }
+}
+
+export const sign = {
+  id: "sign", label: "Sign language", isSign: true,
+  hint: "ASL fingerspelling: hold each letter steady for about half a second. Lower your hand for a second to start a new word. One hand, palm toward the camera.",
+  valueLabel: "letter confidence", range: [0, 1],
   async init() {
     const v = await mp();
-    this.model = await create(v.GestureRecognizer, {
-      baseOptions: { modelAssetPath: `${MODELS}/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task` },
+    this.model = await create(v.HandLandmarker, {
+      baseOptions: { modelAssetPath: `${MODELS}/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task` },
       runningMode: "VIDEO", numHands: 1,
     });
+    this.net = await (await fetch("models/asl_letters.json")).json();
     this.reset();
   },
-  reset() { this.current = null; this.since = 0; this.fired = false; },
-  // returns {word} once when a gesture has been held for holdS seconds
+  reset() { this.typer = new SignTyper(); },
+  // returns {word} once when a letter (or a space) is typed
   read(src, tMs) {
-    const res = this.model.recognizeForVideo(src, nextTs(this.model, tMs));
-    const g = res.gestures?.[0]?.[0];
-    const name = g && g.categoryName !== "None" && g.score > 0.6 ? g.categoryName : null;
-    const t = tMs / 1000;
-    if (name !== this.current) { this.current = name; this.since = t; this.fired = false; }
-    let word = null;
-    if (name && !this.fired && t - this.since >= this.holdS) { word = GESTURE_WORDS[name]; this.fired = true; }
-    return { on: !!name, confidence: g?.score ?? 0, value: g?.score ?? 0, threshold: 0.6, gesture: name,
-             held: name ? Math.min(1, (t - this.since) / this.holdS) : 0, word };
+    const t = tMs / 1000, res = this.model.detectForVideo(src, nextTs(this.model, tMs));
+    const lm = res.landmarks?.[0];
+    let letter = null, conf = 0;
+    if (lm) {
+      const p = letterProbs(this.net, signFeatures(lm));
+      const i = p.indexOf(Math.max(...p));
+      letter = this.net.letters[i]; conf = p[i];
+    }
+    const word = this.typer.push(t, letter, conf, !!lm);
+    const ty = this.typer, held = ty.current ? Math.min(1, (t - ty.since) / ty.hold) : 0;
+    return { on: !!(lm && conf >= SIGN.MIN_CONF), confidence: conf, value: conf, threshold: SIGN.MIN_CONF, found: !!lm,
+             letter: lm ? letter : null, held, word, points: lm ?? [] };
   },
 };
 
-export const CHANNELS = { blink, tap, flash, gesture };
+export const CHANNELS = { blink, tap, flash, sign };

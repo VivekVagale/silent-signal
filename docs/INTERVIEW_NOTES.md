@@ -97,6 +97,44 @@ say it. That is why the app has a review mode: replay, flip, delete or add
 marks. I kept a strict `xfail` test for "TORTUR" so a real fix is noticed,
 rather than tuning thresholds until this one clip passes.
 
+## Sign language: letters from hand landmarks
+
+The sign channel reads ASL fingerspelling. It replaced an earlier "gesture"
+channel that only mapped MediaPipe's 7 built-in hand shapes to words.
+
+- **Landmarks, not pixels.** MediaPipe HandLandmarker already finds 21 hand
+  points; a letter is a hand shape, so those points are the input. That needs
+  far less data than an image model (2,122 frames were enough), works in any
+  lighting MediaPipe handles, and runs in the browser in microseconds.
+- **Features.** Points relative to the wrist, divided by palm length (wrist
+  to middle knuckle): position and distance from the camera drop out, shape
+  and orientation stay. Orientation must stay: H and U, or K and P, are the
+  same shape pointing different ways.
+- **Model.** 63 -> 64 -> 26 network, ReLU, softmax, Adam, dropout, weight
+  decay, written in numpy so the same weights (a 53 KB JSON) run in Python and
+  in JavaScript; a test checks both give the same answer.
+- **Augmentation was the biggest gain.** Mirror (the other hand signs the
+  mirror image of the same letter), rotate ±20°, stretch x against y
+  (cameras differ in aspect ratio), jitter. Accuracy 90.2% -> 96.6%; on
+  mirrored frames (the other hand) 72.6% -> 96.0%.
+- **Honest evaluation.** The data has no signer id, so 5-fold
+  cross-validation mixes the same people across folds: 96.6% is an upper
+  bound for a stranger. The real test is new signers, which I do not have.
+- **Typing rule.** A letter is typed when held confidently for 0.4 s; the
+  same letter again needs a change in between (a relaxed hand); a short
+  unsure blur (under 0.15 s) does not break a hold; no hand for 1 s is a
+  space. A letter is typed only on a confident frame: otherwise an unsure
+  frame inside the grace period could type it.
+- **The sample clip is synthetic**: a MakeHuman character posed letter by
+  letter in Blender. Each shape was checked against the real pipeline; A and
+  U never read correctly on the CG hand (U with fingers together still reads
+  as V), so the phrase "BE BOLD" avoids them. Compression mattered: O scored
+  0.93-0.99 on the rendered frames, 0.59-0.80 after a strong H.264
+  compression, so the clip is encoded at higher quality.
+- **Why not ISL?** Indian Sign Language fingerspelling mostly uses two hands
+  and public landmark data is scarce. The channel interface takes it as soon
+  as there is data: a new label set and a two-hand feature vector.
+
 ## Why a browser app
 
 Target users (patients, carers) will not install Python. MediaPipe ships a
@@ -112,5 +150,6 @@ side exists for batch analysis, the benchmark and tests.
   channel.
 - Natural blinks produce dots, hence the arm/pause switch. A smarter fix:
   require a start sequence, or ignore blinks shorter than ~150 ms.
-- Gestures are 7 built-in MediaPipe shapes mapped to words, not sign
-  language.
+- Sign language covers ASL fingerspelling only, one frame at a time: J and
+  Z are moving letters and are seen as single frames; whole-word signs and
+  ISL are not covered. The 96.6% is not measured on new signers.

@@ -18,6 +18,7 @@ class FrameReading:
     confidence: float     # 0-1, how sure the detector is about this frame
     value: float          # the raw measurement (eye closure, pinch distance, brightness), for plots
     found: bool = True    # False when the detector saw nothing to measure (no face, no hand)
+    label: str | None = None   # channels that name a symbol directly (a sign language letter)
 
 
 class Detector(ABC):

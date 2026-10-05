@@ -88,7 +88,7 @@ def analyze(path: str, channel: str, sensitivity: float = 0.45) -> dict:
         raise FileNotFoundError(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     det = get(channel)
-    times, states, confs, values, found, cuts = [], [], [], [], [], []
+    times, states, confs, values, found, cuts, labels = [], [], [], [], [], [], []
     i, prev = 0, None
     while True:
         ok, frame = cap.read()
@@ -99,10 +99,18 @@ def analyze(path: str, channel: str, sensitivity: float = 0.45) -> dict:
         prev, change = frame_change(prev, frame)
         times.append(t); states.append(r.on); confs.append(r.confidence); values.append(r.value); found.append(r.found)
         cuts.append(change > CUT)
+        labels.append(r.label)
         i += 1
     cap.release()
     det.close()
 
+    if channel == "sign":                       # letters, not Morse: hold to type, hand down = space
+        from .signs import Typer
+        typer = Typer()
+        for t, lab, c, f in zip(times, labels, confs, found):
+            typer.push(t, lab, c, f)
+        return {"channel": channel, "fps": fps, "frames": i, "duration_s": round(i / fps, 2), "text": typer.text,
+                "typed": [{"t_s": round(t, 3), "char": ch, "confidence": round(c, 3)} for t, ch, c in typer.typed]}
     if channel == "blink":
         states = calibrated_states(values, found, sensitivity)
     pulses = pulses_from_states(times, states, confs, min_on=det.min_on, min_off=det.min_off)
@@ -122,16 +130,20 @@ def analyze(path: str, channel: str, sensitivity: float = 0.45) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
-    ap.add_argument("--channel", choices=["flash", "blink", "tap"], default="flash")
+    ap.add_argument("--channel", choices=["flash", "blink", "tap", "sign"], default="flash")
     ap.add_argument("--json", help="also write the full result here")
     args = ap.parse_args()
     out = analyze(args.video, args.channel)
-    for s in out["signals"]:
+    for s in out.get("typed", []):
+        print(f"{s['t_s']:8.2f}s  {s['char']!r}  conf {s['confidence']:.2f}")
+    for s in out.get("signals", []):
         print(f"{s['start_s']:8.2f}s  {s['mark']}  {s['duration_s']:.2f}s  conf {s['confidence']:.2f}")
-    if out["cuts_s"]:
+    if out.get("cuts_s"):
         print(f"\n{len(out['cuts_s'])} cut(s) at {out['cuts_s']} s, {out['blind_s']} s unseen: "
               "signals there are dropped and a cut always ends the word")
-    print(f"\nmorse: {out['morse']}\ntext:  {out['text']}")
+    if "morse" in out:
+        print(f"\nmorse: {out['morse']}")
+    print(f"text:  {out['text']}")
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=2)

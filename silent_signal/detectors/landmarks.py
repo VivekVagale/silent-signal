@@ -116,3 +116,32 @@ class TapDetector(Detector):
 
     def close(self) -> None:
         self.model.close()
+
+
+@register
+class SignDetector(Detector):
+    """ASL fingerspelling: HandLandmarker points -> the letter network (see signs.py).
+
+    `on` means a letter is recognised with enough confidence; `label` is the letter.
+    Typing (hold to type, lower the hand for a space) is done by signs.Typer.
+    """
+    name = "sign"
+
+    def __init__(self):
+        from ..signs import LetterNet, MIN_CONF
+        opts = vision.HandLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=model_path("hand_landmarker.task")),
+            running_mode=vision.RunningMode.VIDEO, num_hands=1)
+        self.model = vision.HandLandmarker.create_from_options(opts)
+        self.net, self.min_conf, self.ts = LetterNet(), MIN_CONF, -1
+
+    def read(self, frame_bgr: np.ndarray, t: float) -> FrameReading:
+        self.ts = max(int(t * 1000), self.ts + 1)
+        res = self.model.detect_for_video(to_mp_image(frame_bgr), self.ts)
+        if not res.hand_landmarks:
+            return FrameReading(False, 0.0, 0.0, found=False)
+        letter, conf = self.net.predict([[q.x, q.y, q.z] for q in res.hand_landmarks[0]])
+        return FrameReading(conf >= self.min_conf, conf, conf, label=letter)
+
+    def close(self) -> None:
+        self.model.close()
