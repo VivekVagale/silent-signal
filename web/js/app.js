@@ -269,15 +269,27 @@ async function analyzeVideo(file) {
   const shown = () => new Promise((resolve) => {
     let done = false; const finish = () => { if (!done) { done = true; resolve(); } };
     if (hasRVFC) video.requestVideoFrameCallback(finish);
-    video.addEventListener("seeked", () => requestAnimationFrame(() => requestAnimationFrame(finish)), { once: true });
+    // A tab that is hidden or covered never paints, so waiting only for a paint stalled every
+    // frame until the timeout (2 s a frame). After "seeked" the frame is decoded: move on after
+    // two paints or 60 ms, whichever comes first (at once when hidden: timers are slowed there).
+    video.addEventListener("seeked", () => {
+      if (document.hidden) return finish();
+      requestAnimationFrame(() => requestAnimationFrame(finish));
+      setTimeout(finish, 60);
+    }, { once: true });
     setTimeout(finish, 1500);                   // never hang on a frame the decoder will not show
   });
+  // Never run ahead of the clip's own clock, so the message forms at the speed it was sent,
+  // as with the live camera. A slow detector just lags; a hidden tab goes flat out.
+  const start = performance.now();
   for (let t = 0; t <= dur && token === state.analyzing; t += STEP) {
     const ready = shown();
     video.currentTime = t;
     await ready;
     if (token !== state.analyzing) return;
     sample(t);
+    const ahead = t * 1000 - (performance.now() - start);
+    if (ahead > 0 && !document.hidden) await new Promise((r) => setTimeout(r, ahead));
   }
   if (token !== state.analyzing) return;
   $("progress").firstElementChild.style.width = "100%";
