@@ -78,6 +78,7 @@
 
   canvas#scope { width: 100%; height: 120px; display: block; border-radius: 8px; background: #030712; }
   .channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .channels .channel:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .channel { text-align: left; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; min-height: 64px; }
   .channel .name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
   .channel .sub { color: var(--muted); font-size: .76rem; font-weight: 400; }
@@ -176,7 +177,7 @@
               <p id="phText">Your camera feed is processed on this device only. Nothing is uploaded.</p>
               <button class="primary" id="start"><svg class="i"><use href="#i-cam"/></svg>Start camera</button>
               <label class="file hidden" id="pick"><button class="primary" tabindex="-1"><svg class="i"><use href="#i-upload"/></svg>Choose a video</button><input type="file" id="file" accept="video/*" aria-label="Choose a video to analyze"></label>
-              <button class="hidden sample" id="sampleBlink" data-ch="blink" data-src="samples/blink_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-eye"/></svg>Blink sample</button><button class="hidden sample" id="sampleFlash" data-ch="flash" data-src="samples/flash_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-flash"/></svg>Flash sample</button><button class="hidden sample" id="sampleSign" data-ch="sign" data-src="samples/sign_be_bold.mp4" style="margin-left:8px"><svg class="i"><use href="#i-sign"/></svg>Sign sample</button>
+              <button class="hidden sample" id="sampleBlink" data-ch="blink" data-src="samples/blink_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-eye"/></svg>Blink sample</button><button class="hidden sample" id="sampleFlash" data-ch="flash" data-src="samples/flash_sos_help.mp4" style="margin-left:8px"><svg class="i"><use href="#i-flash"/></svg>Flash sample</button><button class="hidden sample" id="sampleSign" data-ch="sign" data-src="samples/sign_be_bold.mp4" style="margin-left:8px"><svg class="i"><use href="#i-sign"/></svg>Sign sample</button><button class="hidden sample" id="sampleWords" data-ch="words" data-src="samples/isl_hello_how_are_you_thank_you.mp4" style="margin-left:8px"><svg class="i"><use href="#i-sign"/></svg>ISL sample</button>
             </div>
           </div>
         </div>
@@ -245,7 +246,8 @@
   <footer>
     Timing is learned from you: the dot/dash boundary and letter/word gaps adapt to how fast you signal (1-D k-means on a log scale).
     Blinks and finger presses use Google MediaPipe landmark models; flashes use plain image brightness. Everything runs in your browser.
-    Sign language is ASL fingerspelling (one letter per hand shape), read by a small network trained on real signers' hand landmarks. Whole-word signs and Indian Sign Language are not covered yet.
+    Sign language: ASL fingerspelling (one letter per hand shape), and a prototype for 17 whole words of Indian Sign Language (greetings and pronouns), both read by small networks trained on real signers' landmarks.
+    ISL data: INCLUDE (Sridhar et al., ACM Multimedia 2020, CC BY 4.0), signed by Deaf students of St. Louis School for the Deaf, Chennai; the ISL sample uses clips the model never trained on.
     <br>Code, benchmark and design notes: <a href="https://github.com/VivekVagale/silent-signal">github.com/VivekVagale/silent-signal</a> · by Vivek Vagale
   </footer>
 </main>

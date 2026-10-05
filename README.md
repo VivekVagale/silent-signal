@@ -1,20 +1,23 @@
 # Silent Signal
 
 **Talk without sound.** Blink, touch your fingertips together, or flash a
-light, and Silent Signal reads it as Morse code; or fingerspell in sign
-language (ASL), and it reads the letters. It turns them into text and speech,
+light, and Silent Signal reads it as Morse code; fingerspell in sign
+language (ASL), and it reads the letters; sign whole words in Indian Sign
+Language (a 17-word prototype), and it reads the words. It turns them into text and speech,
 live from a webcam or from a recorded video. For people who cannot
 speak (after a stroke, on a ventilator, with ALS) or in places where you
 cannot make a sound.
 
 **Live demo: https://vivekvagale.github.io/silent-signal/** : runs in your
 browser; camera frames never leave your device. No camera? Open *Analyze
-video* and press *Blink sample*, *Flash sample* or *Sign sample*. All three
-clips are synthetic: a computer-generated MakeHuman face (CC0) blinking
-"SOS HELP", a rendered torch flashing it, and a computer-generated signer
-fingerspelling "BE BOLD". All three decode exactly, and a test checks it
-(how the [blink](tools/blink_sample/README.md) and
-[sign](tools/sign_sample/README.md) clips are made).
+video* and press a sample. Three are synthetic: a computer-generated
+MakeHuman face (CC0) blinking "SOS HELP", a rendered torch flashing it, and a
+computer-generated signer fingerspelling "BE BOLD". The *ISL sample* is real:
+a Deaf signer from the INCLUDE dataset (CC BY 4.0) signing "Hello", "How are
+you", "Thank you", in clips the word model never trained on. All four decode
+exactly, and a test checks it (how the [blink](tools/blink_sample/README.md),
+[sign](tools/sign_sample/README.md) and [ISL](tools/isl_sample/README.md)
+clips are made).
 
 ## Channels
 
@@ -24,10 +27,16 @@ fingerspelling "BE BOLD". All three decode exactly, and a test checks it
 | Finger press | index fingertip touches thumb: short = dot, long = dash | MediaPipe HandLandmarker, fingertip distance / hand size |
 | Light flash | torch or phone light: short = dot, long = dash | OpenCV: brightest spot after a light blur, adaptive dark/bright levels |
 | Sign language | ASL fingerspelling: hold each letter about half a second; lower the hand for a space | MediaPipe HandLandmarker (21 points) + a small network trained on real signers' landmarks |
+| ISL words | Indian Sign Language, one word at a time: sign it, lower both hands | MediaPipe PoseLandmarker (body) + HandLandmarker (both hands) over time + a network trained on INCLUDE |
 
-Sign language here means **ASL fingerspelling** (A-Z, one hand), not whole
-signs. Indian Sign Language fingerspelling mostly uses two hands and has far
-less public data, so it is the next step, not this one.
+Two kinds of sign language. **Letters** (ASL fingerspelling, one hand, A-Z)
+spell anything, slowly. **Words** are how Deaf people actually sign: both
+hands, movement, position on the body. The ISL words channel is a
+**prototype with 17 words** (greetings and pronouns: hello, how are you,
+alright, good morning / afternoon / evening / night, thank you, pleased, I,
+you, he, she, it, we, you (plural), they). It reads one word at a time and
+outputs the words in order, not translated English sentences; reading
+continuous signing into sentences is still a research problem.
 
 ## Results
 
@@ -86,6 +95,27 @@ test folds: treat 96.6% as an upper bound for a new person. Most confused:
 R/U, P/Z (Z is a moving letter seen as one frame), O/E. On the synthetic
 signer, U with the fingers together is still read as V.
 
+**ISL words**: [INCLUDE](https://zenodo.org/records/4010759) (Sridhar et al.,
+ACM Multimedia 2020, CC BY 4.0), Indian Sign Language signed by Deaf
+students of St. Louis School for the Deaf, Chennai. This prototype uses two
+of its 15 categories: 17 words, 358 clips. Per frame: 7 body points and both
+hands (where each is on the body, and its shape), relative to the shoulders;
+only the frames with a hand raised count, resampled to 16 frames; a small
+network names the word. 5 clips per word were held out before training:
+
+| 17 words, 85 held-out clips | top-1 | top-3 | the same clips mirrored (left-handed signer) |
+|---|---|---|---|
+| no augmentation | 95.3% | 98.8% | 11.8% |
+| augmentation (time crop, rotate, scale, dropped hand frames) | 98.8% | 100.0% | 18.8% |
+| + mirrored copies (this project) | **97.7%** | 100.0% | **98.8%** |
+
+INCLUDE's official train/test split is no longer downloadable and clips carry
+no signer id, so the same signers appear in training and test: treat this as
+an upper bound for a new person. Many INCLUDE words look alike (good morning
+/ afternoon / evening / night share "good"; I and you are both pointing), and
+the full 263-word set would be much harder: the INCLUDE paper reports 85.6%
+on all 263 words with its best model.
+
 ### A real test: Jeremiah Denton, 1966
 
 In a 1966 propaganda interview filmed in Hanoi, US Navy pilot Jeremiah
@@ -142,6 +172,7 @@ flowchart LR
     D -->|flash| F[OpenCV<br/>brightest spot]
     B & H & F --> S[ON/OFF with hysteresis<br/>+ confidence]
     D -->|sign| G[HandLandmarker<br/>21 points] --> N[letter network<br/>hold to type] --> X
+    D -->|ISL words| W[Pose + both hands<br/>while a hand is raised] --> WN[word network<br/>16 frames] --> X
     S --> P[pulses<br/>drop flicker, merge dropouts]
     P --> T[learn speed<br/>log-scale 2-means]
     T --> M[dots, dashes, gaps]
@@ -171,8 +202,10 @@ uv venv --python 3.11 .venv
 .venv\Scripts\activate
 uv pip install -r requirements.txt
 
-python -m silent_signal.analyze clip.mp4 --channel flash      # or blink / tap / sign; --json out.json
+python -m silent_signal.analyze clip.mp4 --channel flash      # or blink / tap / sign / words; --json out.json
 python -m silent_signal.train_signs                           # sign letters: needs data/asl-now (see the file's docstring)
+python -m silent_signal.extract_words V:/include              # ISL words: INCLUDE videos -> landmarks (see the docstring)
+python -m silent_signal.train_words V:/include                # ISL words: train and test
 python -m silent_signal.benchmark                             # the numbers above
 python -m pytest
 python -m http.server 8000 --directory web                    # the browser app on localhost:8000

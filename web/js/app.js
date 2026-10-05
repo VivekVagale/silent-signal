@@ -1,11 +1,11 @@
-import { CHANNELS, SIGN, SignTyper } from "./detectors.js";
+import { CHANNELS, SIGN } from "./detectors.js";
 import { DOT_DASH, LETTER, MORSE, PulseTracker, WORD, assemble, decodeMorse, decodePulses } from "./morse.js";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
 const scope = $("scope"), sctx = scope.getContext("2d");
-const ICON = { blink: "i-eye", tap: "i-hand", flash: "i-flash", sign: "i-sign" };
-const SUB = { blink: "Face landmarks", tap: "Hand landmarks", flash: "Image brightness", sign: "ASL fingerspelling" };
+const ICON = { blink: "i-eye", tap: "i-hand", flash: "i-flash", sign: "i-sign", words: "i-sign" };
+const SUB = { blink: "Face landmarks", tap: "Hand landmarks", flash: "Image brightness", sign: "ASL fingerspelling", words: "Indian Sign Language" };
 const SCOPE_S = 10;
 const CUT = 30, MAX_LOST = 0.25;   // grey-level change that means a new shot; seconds without a face before we stop guessing
 const thumb = Object.assign(document.createElement("canvas"), { width: 80, height: 60 });
@@ -85,8 +85,14 @@ function render(now) {
   if (ch.isSign) {
     text = state.words.map((w) => w.word).join("");
     const r = state.lastReading, n = Math.round((r?.held ?? 0) * 5);
-    morse = r?.letter ? `${r.letter}  ${"▮".repeat(n)}${"▯".repeat(5 - n)}` : "";
-    $("gap").textContent = !state.armed ? "" : r?.found ? (r.confidence >= SIGN.MIN_CONF ? "HOLDING" : "UNSURE") : "NO HAND";
+    if (ch.isWords) {
+      const last = state.words.at(-1);
+      morse = last?.top3 ? `last sign: ${last.top3.join(" · ")}` : "";
+      $("gap").textContent = !state.armed ? "" : r?.signing ? "SIGNING…" : r?.found ? "LISTENING…" : "STEP INTO VIEW";
+    } else {
+      morse = r?.letter ? `${r.letter}  ${"▮".repeat(n)}${"▯".repeat(5 - n)}` : "";
+      $("gap").textContent = !state.armed ? "" : r?.found ? (r.confidence >= SIGN.MIN_CONF ? "HOLDING" : "UNSURE") : "NO HAND";
+    }
   } else {
     const d = decodePulses(pulses, ch.defaultSplit, currentUnit());
     unit = d.unit; morse = d.morse; text = d.text;
@@ -149,7 +155,7 @@ function processFrame(src, t) {
 
   if (state.armed) {
     if (ch.isSign) {
-      if (r.word) { state.words.push({ word: r.word, t: t - state.t0, confidence: r.confidence }); renderLog(); }
+      if (r.word) { state.words.push({ word: r.word, t: t - state.t0, confidence: r.confidence, top3: r.top3 }); renderLog(); }
     } else if (state.tracker.push(t, r.on, r.confidence)) {
       renderLog();
     }
@@ -171,9 +177,9 @@ function drawOverlay(r) {
   const P = (p) => [ox + p.x * vw * s, oy + p.y * vh * s];
   octx.fillStyle = r.on && (state.armed || state.analyzing) ? "#f59e0b" : "#818cf8";
   for (const p of r.points ?? []) { const [x, y] = P(p); octx.beginPath(); octx.arc(x, y, 3.5, 0, 7); octx.fill(); }
-  if (r.letter) {
-    octx.font = "600 22px 'Share Tech Mono', monospace"; octx.fillStyle = r.confidence >= SIGN.MIN_CONF ? "#f59e0b" : "#818cf8";
-    const label = `${r.letter}  ${Math.round(r.confidence * 100)}%  HOLD ${Math.round(r.held * 100)}%`;
+  if (r.letter || r.signing) {
+    octx.font = "600 22px 'Share Tech Mono', monospace"; octx.fillStyle = r.signing || r.confidence >= SIGN.MIN_CONF ? "#f59e0b" : "#818cf8";
+    const label = r.signing ? "SIGNING…" : `${r.letter}  ${Math.round(r.confidence * 100)}%  HOLD ${Math.round(r.held * 100)}%`;
     const x = state.mode === "live" ? w - 16 : 16;
     octx.save();
     if (state.mode === "live") { octx.translate(w, 0); octx.scale(-1, 1); }   // canvas is mirrored in live mode
@@ -261,7 +267,7 @@ async function analyzeVideo(file) {
 
   const sample = (t) => {
     const r = ch.read(video, t * 1000);
-    state.series.push({ t, v: r.value, on: r.on, conf: r.confidence, found: r.found !== false, cut: frameChange() > CUT, letter: r.letter });
+    state.series.push({ t, v: r.value, on: r.on, conf: r.confidence, found: r.found !== false, cut: frameChange() > CUT, letter: r.letter, frame: r.frame });
     state.trace.push({ t, v: r.value, on: r.on, thr: r.threshold });
     while (state.trace.length && state.trace[0].t < t - SCOPE_S) state.trace.shift();
     $("sig").classList.toggle("on", !!r.on);
@@ -374,14 +380,14 @@ function decodeSeries(S, live = false) {
 
 // Sign language: replay the frames through the same hold-to-type rule as live mode.
 function decodeSigns(S, note) {
-  const ty = new SignTyper(), key = (w) => w.t.toFixed(2);
-  S.forEach((s) => ty.push(s.t, s.letter, s.conf ?? 0, s.found));
+  const ch = state.channel, ty = ch.newTyper(), key = (w) => w.t.toFixed(2);
+  S.forEach((s) => ty.pushSample(s));
   const typed = ty.typed.filter((w) => !state.edits.deleted.has(key(w)));
   const text = typed.map((w) => w.ch).join("").trim();
   const seen = S.filter((s) => s.found).length / Math.max(1, S.length);
-  if (S.length && seen < 0.5) note.push(`A hand was found in ${Math.round(seen * 100)}% of frames.`);
+  if (S.length && seen < 0.5) note.push(`${ch.isWords ? "A person" : "A hand"} was found in ${Math.round(seen * 100)}% of frames.`);
   const last = S.at(-1), cur = ty.current && !ty.fired ? ty.current : null;
-  return { result: { signs: typed, text, morse: typed.filter((w) => w.ch !== " ").map((w) => w.ch).join(" · "), pulses: [], marks: [], kinds: [],
+  return { result: { signs: typed, text, morse: typed.filter((w) => w.ch !== " ").map((w) => w.ch.trim()).join(" · "), pulses: [], marks: [], kinds: [],
                      thr: SIGN.MIN_CONF, unit: null, key, holding: cur, held: cur && last ? Math.min(1, (last.t - ty.since) / ty.hold) : 0 },
            note, active: !!cur };
 }
@@ -391,7 +397,7 @@ function showLive(t) {
   const { result: R, active } = decodeSeries(state.series, true);
   if (R.signs) {
     showText(R.text, R.morse, active);
-    $("gap").textContent = R.holding ? `HOLDING ${R.holding}` : state.series.at(-1)?.found ? "LISTENING…" : "NO HAND";
+    $("gap").textContent = R.holding ? (state.channel.isWords ? "SIGNING…" : `HOLDING ${R.holding}`) : state.series.at(-1)?.found ? "LISTENING…" : state.channel.isWords ? "NO PERSON" : "NO HAND";
     showSignStats(R.signs.filter((w) => w.ch !== " "));
     $("log").innerHTML = R.signs.length ? signRows(R.signs, false) : `<tr><td colspan="6" class="empty">No letters yet.</td></tr>`;
     return;
@@ -416,7 +422,7 @@ function showLive(t) {
 function showUpTo(t) {
   if (state.result.signs) {
     const shown = state.result.signs.filter((w) => w.t <= t);
-    return showText(shown.map((w) => w.ch).join("").trim(), shown.filter((w) => w.ch !== " ").map((w) => w.ch).join(" · "));
+    return showText(shown.map((w) => w.ch).join("").trim(), shown.filter((w) => w.ch !== " ").map((w) => w.ch.trim()).join(" · "));
   }
   const R = state.result, n = R.pulses.filter((p) => p.end <= t).length;
   const active = R.pulses.some((p) => p.start <= t && t < p.end);
@@ -440,7 +446,7 @@ function renderResult() {
 }
 
 function signRows(signs, fixable, now = -1) {
-  return signs.map((w, i) => `<tr class="${Math.abs(w.t - now) < 0.25 ? "active" : ""}" data-i="${i}"><td>${i + 1}</td><td>${w.t.toFixed(2)}s</td><td>hold</td>
+  return signs.map((w, i) => `<tr class="${Math.abs(w.t - now) < 0.25 ? "active" : ""}" data-i="${i}" title="${escapeHtml((w.top3 ?? []).join(" · "))}"><td>${i + 1}</td><td>${w.t.toFixed(2)}s</td><td>${w.top3 ? "sign" : "hold"}</td>
     <td class="mark">${w.ch === " " ? "␣ space" : escapeHtml(w.ch)}</td><td>${w.ch === " " ? "" : confBar(w.confidence)}</td>
     <td>${fixable ? `<span class="fix"><button data-act="del" data-k="${w.t.toFixed(2)}" title="Not meant: remove">✕</button></span>` : ""}</td></tr>`).reverse().join("");
 }
@@ -482,7 +488,7 @@ function drawTimeline() {
   (R.signs ?? []).forEach((w) => {                       // each typed letter, where it was typed
     if (w.ch === " ") return;
     sctx.fillStyle = "rgba(245,158,11,.30)"; sctx.fillRect(x(w.t) - 1, 0, 2, h);
-    sctx.fillStyle = "#f59e0b"; sctx.font = "600 13px 'Share Tech Mono', monospace"; sctx.fillText(w.ch, x(w.t) + 3, 14);
+    sctx.fillStyle = "#f59e0b"; sctx.font = "600 13px 'Share Tech Mono', monospace"; sctx.fillText(w.ch.trim(), x(w.t) + 3, 14);
   });
   R.pulses.forEach((p, i) => {
     sctx.fillStyle = R.marks[i] === "-" ? "rgba(245,158,11,.28)" : "rgba(129,140,248,.30)";
@@ -563,7 +569,8 @@ function toggleArm() {
 }
 
 $("start").onclick = startCamera;
-// sample clips, all synthetic: a CG face blinking and a CG signer fingerspelling (MakeHuman, CC0), and a rendered torch
+// sample clips: a CG face blinking and a CG signer fingerspelling (MakeHuman, CC0), a rendered torch,
+// and real Indian Sign Language from INCLUDE (CC BY 4.0) that the word model never trained on
 for (const b of document.querySelectorAll("button.sample")) b.onclick = async () => {
   await selectChannel(b.dataset.ch);
   const blob = await (await fetch(b.dataset.src)).blob();

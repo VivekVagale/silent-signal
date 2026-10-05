@@ -1,0 +1,172 @@
+{
+  "dataset": "INCLUDE (ISL), categories Greetings + Pronouns",
+  "words": [
+    "Alright",
+    "Good Morning",
+    "Good afternoon",
+    "Good evening",
+    "Good night",
+    "Hello",
+    "How are you",
+    "I",
+    "Pleased",
+    "Thank you",
+    "he",
+    "it",
+    "she",
+    "they",
+    "we",
+    "you",
+    "you (plural)"
+  ],
+  "train_clips": 273,
+  "test_clips": 85,
+  "results": {
+    "no augmentation": {
+      "top1": 0.9529,
+      "top3": 0.9882,
+      "left_handed_top1": 0.1176
+    },
+    "augmentation": {
+      "top1": 0.9882,
+      "top3": 1.0,
+      "left_handed_top1": 0.1882
+    },
+    "augmentation + mirror": {
+      "top1": 0.9765,
+      "top3": 1.0,
+      "left_handed_top1": 0.9882
+    }
+  },
+  "confused": [
+    [
+      "Good afternoon -> How are you",
+      1
+    ],
+    [
+      "you -> I",
+      1
+    ]
+  ],
+  "held_out_clips": {
+    "Alright": [
+      "MVI_9923",
+      "MVI_9988",
+      "MVI_9965",
+      "MVI_0043",
+      "MVI_0039"
+    ],
+    "Good Morning": [
+      "MVI_9992",
+      "MVI_9935",
+      "MVI_0046",
+      "MVI_0048",
+      "MVI_0098"
+    ],
+    "Good afternoon": [
+      "MVI_0051",
+      "MVI_9936",
+      "MVI_9996",
+      "MVI_0103",
+      "MVI_0050_ (1)"
+    ],
+    "Good evening": [
+      "MVI_005_4 (1)",
+      "MVI_9940",
+      "MVI_005_4 (3)",
+      "MVI_9977",
+      "MVI_9943"
+    ],
+    "Good night": [
+      "MVI_0110",
+      "MVI_0057",
+      "MVI_9980",
+      "MVI_0003",
+      "MVI_9944"
+    ],
+    "Hello": [
+      "MVI_9917",
+      "MVI_0038",
+      "MVI_0037",
+      "MVI_0089",
+      "MVI_0029"
+    ],
+    "How are you": [
+      "MVI_0040",
+      "MVI_9986",
+      "MVI_0034",
+      "MVI_9959",
+      "MVI_9987"
+    ],
+    "I": [
+      "MVI_9920",
+      "MVI_9957",
+      "MVI_0003",
+      "MVI_0001",
+      "MVI_9880"
+    ],
+    "Pleased": [
+      "MVI_0115",
+      "MVI_0068",
+      "MVI_9988",
+      "MVI_0062",
+      "MVI_0116"
+    ],
+    "Thank you": [
+      "MVI_9951",
+      "MVI_0061",
+      "MVI_9985",
+      "MVI_9987",
+      "MVI_0007"
+    ],
+    "he": [
+      "MVI_0018",
+      "MVI_0005",
+      "MVI_0072",
+      "MVI_9889",
+      "MVI_0008"
+    ],
+    "it": [
+      "MVI_0078",
+      "MVI_0077",
+      "MVI_0025",
+      "MVI_0015",
+      "MVI_0026"
+    ],
+    "she": [
+      "MVI_9935",
+      "MVI_0075",
+      "MVI_9933",
+      "MVI_0010",
+      "MVI_9967"
+    ],
+    "they": [
+      "MVI_0034",
+      "MVI_9981",
+      "MVI_0033",
+      "MVI_9912",
+      "MVI_0088"
+    ],
+    "we": [
+      "MVI_9974",
+      "MVI_9973",
+      "MVI_0080",
+      "MVI_9940",
+      "MVI_9942"
+    ],
+    "you": [
+      "MVI_9997",
+      "MVI_9886",
+      "MVI_9962",
+      "MVI_0067",
+      "MVI_9887"
+    ],
+    "you (plural)": [
+      "MVI_9946",
+      "MVI_0082",
+      "MVI_0032",
+      "MVI_9977",
+      "MVI_9948"
+    ]
+  }
+}

@@ -199,6 +199,7 @@ export const sign = {
     this.reset();
   },
   reset() { this.typer = new SignTyper(); },
+  newTyper() { const ty = new SignTyper(); ty.pushSample = (x) => ty.push(x.t, x.letter, x.conf ?? 0, x.found); return ty; },
   // returns {word} once when a letter (or a space) is typed
   read(src, tMs) {
     const t = tMs / 1000, res = this.model.detectForVideo(src, nextTs(this.model, tMs));
@@ -216,4 +217,125 @@ export const sign = {
   },
 };
 
-export const CHANNELS = { blink, tap, flash, sign };
+
+// Not letters: whole Indian Sign Language words, signed with both hands and movement.
+// Pose (body) + both hands per frame, described relative to the shoulders; the frames
+// where a hand is raised are one sign, resampled to 16 frames and named by a network
+// trained on INCLUDE (Deaf signers, Chennai). Same features as silent_signal/words.py.
+export const WORDS = { T: 16, RAISED: 1.3, MIN_SIGN: 0.3, END_GAP: 0.35, MIN_PROB: 0.45 };
+const POSE_IDS = [0, 11, 12, 13, 14, 15, 16];   // nose, shoulders, elbows, wrists (left, right)
+const cropCanvas = document.createElement("canvas"), cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
+
+function bodyFrame(pose, aspect) {
+  const p = pose.map((q) => [q[0] * aspect, q[1]]);
+  const o = [(p[1][0] + p[2][0]) / 2, (p[1][1] + p[2][1]) / 2];
+  return { p, o, w: Math.max(Math.hypot(p[1][0] - p[2][0], p[1][1] - p[2][1]), 1e-3) };
+}
+export function isRaised(pose, aspect) {
+  if (!pose) return false;
+  const { p, o, w } = bodyFrame(pose, aspect);
+  return Math.min(p[5][1], p[6][1]) - o[1] < WORDS.RAISED * w;
+}
+export function wordFrameFeatures(pose, hands, aspect) {
+  const out = new Float32Array(104);
+  if (!pose) return out;
+  const { p, o, w } = bodyFrame(pose, aspect);
+  p.forEach((q, i) => { out[2 * i] = (q[0] - o[0]) / w; out[2 * i + 1] = (q[1] - o[1]) / w; });
+  hands.forEach((h, k) => {
+    if (!h) return;
+    const q = h.map((v) => [v[0] * aspect, v[1]]), palm = Math.max(Math.hypot(q[9][0] - q[0][0], q[9][1] - q[0][1]), 1e-4);
+    const base = 14 + 45 * k;
+    out[base] = (q[0][0] - o[0]) / w; out[base + 1] = (q[0][1] - o[1]) / w;
+    q.forEach((v, i) => { out[base + 2 + 2 * i] = (v[0] - q[0][0]) / palm; out[base + 3 + 2 * i] = (v[1] - q[0][1]) / palm; });
+    out[base + 44] = 1;
+  });
+  return out;
+}
+export function signInput(frames) {         // [{pose, hands, aspect}] -> T x 104, flattened
+  const F = frames.map((f) => wordFrameFeatures(f.pose, f.hands, f.aspect)), n = WORDS.T, x = [];
+  for (let k = 0; k < n; k++) {
+    const pos = F.length === 1 ? 0 : (k * (F.length - 1)) / (n - 1), i0 = Math.floor(pos), i1 = Math.min(i0 + 1, F.length - 1), f = pos - i0;
+    for (let j = 0; j < 104; j++) x.push(F[i0][j] * (1 - f) + F[i1][j] * f);
+  }
+  return x;
+}
+
+// per-frame stream -> whole words: a sign is a stretch of raised hands, ended by END_GAP seconds down
+export class WordTyper {
+  constructor(net) { this.net = net; this.reset(); }
+  reset() { this.frames = []; this.lastUp = null; this.typed = []; this.current = null; this.fired = false; this.since = 0; this.hold = 1; }
+  pushSample(s) { return this.push(s.t, s.frame); }
+  push(t, frame) {
+    const up = !!frame && isRaised(frame.pose, frame.aspect);
+    if (up) {
+      if (!this.frames.length) this.since = t;
+      this.frames.push(frame); this.lastUp = t; this.current = "…";
+      return null;
+    }
+    if (!this.frames.length || t - this.lastUp < WORDS.END_GAP) return null;
+    const done = this.frames; this.frames = []; this.current = null;
+    if (this.lastUp - this.since < WORDS.MIN_SIGN) return null;
+    const p = letterProbs(this.net, signInput(done)), order = p.map((v, i) => [v, i]).sort((a, b) => b[0] - a[0]);
+    const [best, i] = order[0], word = best >= WORDS.MIN_PROB ? this.net.words[i] : `${this.net.words[i]}?`;
+    const out = { t: this.lastUp, ch: `${word} `, confidence: best, top3: order.slice(0, 3).map(([v, j]) => `${this.net.words[j]} ${Math.round(v * 100)}%`) };
+    this.typed.push(out);
+    return out;
+  }
+}
+
+export const words = {
+  id: "words", label: "ISL words", isSign: true, isWords: true,
+  hint: "Indian Sign Language, one word at a time: sign it, then lower both hands. Knows 17 words: greetings (hello, how are you, thank you, good morning…) and pronouns (I, you, he, she, we, they…). Stand back so your upper body is in view.",
+  valueLabel: "hands raised", range: [0, 1],
+  async init() {
+    const v = await mp();
+    this.pose = await create(v.PoseLandmarker, {
+      baseOptions: { modelAssetPath: `${MODELS}/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task` },
+      runningMode: "VIDEO", numPoses: 1,
+    });
+    this.hands = await create(v.HandLandmarker, {
+      baseOptions: { modelAssetPath: `${MODELS}/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task` },
+      runningMode: "IMAGE", numHands: 2, minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4,
+    });
+    this.net = await (await fetch("models/isl_words.json")).json();
+    this.reset();
+  },
+  reset() { this.typer = new WordTyper(this.net); },
+  newTyper() { return new WordTyper(this.net); },
+  // body from the whole frame; hands from a crop around the upper body (small signers' hands
+  // are missed otherwise), assigned left/right by the nearest body wrist
+  read(src, tMs) {
+    const W = src.videoWidth || src.width, H = src.videoHeight || src.height, aspect = W / H;
+    const res = this.pose.detectForVideo(src, nextTs(this.pose, tMs));
+    const lm = res.landmarks?.[0];
+    let frame = null, points = [];
+    if (lm) {
+      const pose = POSE_IDS.map((i) => [lm[i].x, lm[i].y]);
+      const ls = [pose[1][0] * W, pose[1][1] * H], rs = [pose[2][0] * W, pose[2][1] * H];
+      const sw = Math.max(Math.hypot(ls[0] - rs[0], ls[1] - rs[1]), 0.08 * W), cx = (ls[0] + rs[0]) / 2, cy = (ls[1] + rs[1]) / 2;
+      const x0 = Math.max(0, Math.round(cx - 2 * sw)), x1 = Math.min(W, Math.round(cx + 2 * sw));
+      const y0 = Math.max(0, Math.round(cy - 1.6 * sw)), y1 = Math.min(H, Math.round(cy + 2.4 * sw));
+      const hands = [null, null];
+      if (x1 - x0 > 8 && y1 - y0 > 8) {
+        cropCanvas.width = x1 - x0; cropCanvas.height = y1 - y0;
+        cropCtx.drawImage(src, x0, y0, x1 - x0, y1 - y0, 0, 0, x1 - x0, y1 - y0);
+        for (const h of this.hands.detect(cropCanvas).landmarks ?? []) {
+          const a = h.map((q) => [(x0 + q.x * (x1 - x0)) / W, (y0 + q.y * (y1 - y0)) / H]);
+          const d = [5, 6].map((j) => Math.hypot(a[0][0] - pose[j][0], a[0][1] - pose[j][1]));
+          let side = d[0] <= d[1] ? 0 : 1;
+          if (hands[side]) side = 1 - side;
+          hands[side] = a;
+          points.push(...a.map(([x, y]) => ({ x, y })));
+        }
+      }
+      frame = { pose, hands, aspect };
+      points.push(...pose.map(([x, y]) => ({ x, y })));
+    }
+    const out = this.typer.push(tMs / 1000, frame);
+    const up = !!frame && isRaised(frame.pose, aspect);
+    return { on: up, confidence: out?.confidence ?? (up ? 1 : 0), value: up ? 1 : 0, threshold: 0.5, found: !!lm, frame, points,
+             word: out?.ch ?? null, top3: out?.top3, signing: this.typer.frames.length > 0 };
+  },
+};
+
+export const CHANNELS = { blink, tap, flash, sign, words };

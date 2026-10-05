@@ -135,6 +135,41 @@ channel that only mapped MediaPipe's 7 built-in hand shapes to words.
   and public landmark data is scarce. The channel interface takes it as soon
   as there is data: a new label set and a two-hand feature vector.
 
+## Sign language, part 2: whole words (Indian Sign Language)
+
+Fingerspelling is letters; Deaf people mostly sign whole words with both
+hands, movement and position on the body. The ISL words channel is a
+prototype for 17 words from INCLUDE (Deaf students, Chennai, CC BY 4.0).
+
+- **What it reads per frame**: 7 body points (PoseLandmarker) and both hands
+  (HandLandmarker), relative to the shoulder centre, scaled by shoulder
+  width. For each hand: where its wrist is on the body, and its shape
+  (relative to its own wrist). Left/right hand is decided by the nearest body
+  wrist, not MediaPipe's own label, which flips.
+- **Small signers**: INCLUDE is filmed full body at 1080p; hands are a few
+  dozen pixels and the hand model misses them. Running it on a crop around
+  the upper body (found from the pose) fixes that. The browser does the same.
+- **Where a sign starts and stops**: a sign is the stretch where a wrist is
+  raised. I first set the line at 1.8 shoulder-widths below the shoulders
+  from one clip, measured without correcting for the 16:9 frame; resting
+  hands actually sit at 1.47-1.70, so hands always counted as raised, the
+  model trained on whole clips and live mode never split words. Measuring
+  all 358 clips (rest 1.47-1.70, every sign reaches 0.94 or higher) put the
+  line at 1.3. Accuracy went from 95.3% to 97.6% and the sample split into
+  its three words.
+- **Model**: the raised frames resampled to 16, flattened (16 x 104), into
+  the same small numpy network as the letters. With about 16 clips per word,
+  augmentation matters: time crop, rotation, scale, dropped hand frames, and
+  mirrored copies (a left-handed signer: 12% -> 99% on mirrored clips).
+- **Honest limits**: 17 words, not 263; same signers in train and test (the
+  official split link is dead); one word at a time with hands lowered in
+  between; output is the words in order, not English sentences.
+- **Why a real sample here but a synthetic one for letters**: a letter is a
+  static hand shape I can pose and check. Word signs are movements of a real
+  language; animating them myself would be inventing signs. So the ISL
+  sample uses real INCLUDE clips (CC BY 4.0, credited on screen) that were
+  held out before training.
+
 ## Why a browser app
 
 Target users (patients, carers) will not install Python. MediaPipe ships a
@@ -151,5 +186,5 @@ side exists for batch analysis, the benchmark and tests.
 - Natural blinks produce dots, hence the arm/pause switch. A smarter fix:
   require a start sequence, or ignore blinks shorter than ~150 ms.
 - Sign language covers ASL fingerspelling only, one frame at a time: J and
-  Z are moving letters and are seen as single frames; whole-word signs and
-  ISL are not covered. The 96.6% is not measured on new signers.
+  Z are moving letters and are seen as single frames; whole-word ISL is a
+  17-word prototype (see above). The 96.6% is not measured on new signers.

@@ -82,7 +82,47 @@ def drop_unseen(pulses: list[Pulse], times: list[float], blind: list[bool]) -> t
     return keep, bt
 
 
+def analyze_words(path: str) -> dict:
+    """Indian Sign Language words: body + both hands per frame, one word per raised-hands stretch."""
+    from .holistic import Holistic
+    from .words import MIN_PROB, Segmenter, WordNet, clip_features
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise FileNotFoundError(path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    aspect = cap.get(cv2.CAP_PROP_FRAME_WIDTH) / cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    hol, seg, net, out, i = Holistic(), Segmenter(), WordNet(), [], 0
+
+    def name(frames):
+        x = clip_features([f[1] for f in frames], [f[2] for f in frames], aspect, (0, len(frames)))
+        p = net.probs(x)[0]
+        order = np.argsort(-p)
+        w = net.words[order[0]]
+        out.append({"t_s": round(frames[-1][0], 2), "word": w if p[order[0]] >= MIN_PROB else w + "?",
+                    "confidence": round(float(p[order[0]]), 3),
+                    "top3": [f"{net.words[j]} {p[j]:.2f}" for j in order[:3]]})
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        pose, hands = hol.read(frame, i / fps)
+        done = seg.push(i / fps, pose, hands, aspect)
+        if done:
+            name(done)
+        i += 1
+    cap.release()
+    hol.close()
+    if seg.frames and seg.frames[-1][0] - seg.frames[0][0] >= 0.3:     # a sign still going on at the end
+        name(seg.frames)
+    return {"channel": "words", "fps": fps, "frames": i, "duration_s": round(i / fps, 2),
+            "text": " ".join(w["word"] for w in out), "typed": [{"t_s": w["t_s"], "char": w["word"], "confidence": w["confidence"]} for w in out],
+            "words": out}
+
+
 def analyze(path: str, channel: str, sensitivity: float = 0.45) -> dict:
+    if channel == "words":
+        return analyze_words(path)
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise FileNotFoundError(path)
@@ -130,7 +170,7 @@ def analyze(path: str, channel: str, sensitivity: float = 0.45) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
-    ap.add_argument("--channel", choices=["flash", "blink", "tap", "sign"], default="flash")
+    ap.add_argument("--channel", choices=["flash", "blink", "tap", "sign", "words"], default="flash")
     ap.add_argument("--json", help="also write the full result here")
     args = ap.parse_args()
     out = analyze(args.video, args.channel)
