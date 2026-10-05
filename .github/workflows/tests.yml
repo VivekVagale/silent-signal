@@ -17,8 +17,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-      # MediaPipe pulls in OpenCV, which needs libGL on the runner.
-      - run: sudo apt-get update -q && sudo apt-get install -y -q libgl1
+      # OpenCV needs libGL, and MediaPipe's landmark tasks load EGL/GLES even on CPU.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libgl1 libegl1 libgles2
       - run: pip install -r requirements.txt pytest-github-actions-annotate-failures
       # Downloads the MediaPipe landmark models once, then decodes the sample videos end to end.
       - run: python -m pytest -q -rs
