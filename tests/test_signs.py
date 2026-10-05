@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from silent_signal.signs import LETTERS, LetterNet, Typer, features
 
@@ -66,7 +67,7 @@ def test_network_reads_its_own_training_frames():
     assert net.letters == LETTERS
     data = ROOT / "data" / "asl-now"
     if not data.exists():                 # the dataset is downloaded, not committed
-        return
+        pytest.skip("ASLNow! landmarks not downloaded")
     hits = total = 0
     for L in LETTERS:
         for f in sorted((data / L).glob("*.json"))[:5]:
@@ -81,7 +82,7 @@ def test_browser_network_matches_python():
     import shutil
     import subprocess
     if not shutil.which("node"):
-        return
+        pytest.skip("node not installed")
     r = np.random.default_rng(1)
     pts = (r.random((21, 3)) * 0.3 + 0.3).tolist()
     js = """

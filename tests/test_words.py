@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from silent_signal.train_words import features_of, mirror
 from silent_signal.words import RAISED, Segmenter, WordNet, clip_features
@@ -54,7 +55,7 @@ def test_mirroring_twice_changes_nothing():
 
 def test_held_out_clips():
     if not DATA.exists():                             # the dataset is downloaded, not committed
-        return
+        pytest.skip("INCLUDE landmarks not downloaded")
     net, r = WordNet(), json.loads((ROOT / "results" / "words.json").read_text(encoding="utf-8"))
     hits = n = 0
     for w, stems in r["held_out_clips"].items():
@@ -68,7 +69,7 @@ def test_held_out_clips():
 def test_browser_matches_python():
     """web/js/detectors.js computes the same input and the same word probabilities."""
     if not shutil.which("node"):
-        return
+        pytest.skip("node not installed")
     r = np.random.default_rng(3)
     frames = [body(d, r) for d in np.linspace(1.0, 0.2, 12)]
     js_frames = [{"pose": f[0][:, :2].tolist(), "hands": [h[:, :2].tolist() for h in f[1]], "aspect": 4 / 3} for f in frames]
